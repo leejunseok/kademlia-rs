@@ -17,10 +17,12 @@ fn main() {
 }
 
 fn new_node_id(input: &str) -> Result<NodeID, &str> {
-    let input = match input.from_hex() {
+    let mut input = match input.from_hex() {
         Err(_) => { return Err("Input was not valid hex"); }
         Ok(x) => { x }
     };
+
+    input.reverse();
 
     if ID_LEN != input.len() {
         return Err("The length of the input doesn't correspond to the ID_LEN");
@@ -43,8 +45,8 @@ fn new_random_node_id() -> NodeID {
 
 impl Display for NodeID {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        for i in 0us..ID_LEN {
-            write!(f, "{0:02x}", self.0[i]);
+        for x in self.0.iter().rev() {
+            write!(f, "{0:02x}", x);
         }
         Ok(())
     }
