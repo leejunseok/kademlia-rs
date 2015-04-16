@@ -1,0 +1,8 @@
+[package]
+name = "dht"
+version = "0.0.1"
+authors = ["Junseok Lee <lee.junseok@berkeley.edu>"]
+
+[dependencies]
+rustc-serialize = "*"
+rand = "*"
