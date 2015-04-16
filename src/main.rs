@@ -6,14 +6,16 @@ use std::fmt::{Error, Display, Formatter};
 
 const ID_LEN: usize = 20;
 
-#[derive(Debug)]
+#[derive(Debug,Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
 struct NodeID([u8; ID_LEN]);
 
 fn main() {
-    let k = new_node_id("00000000000000000000000000000000000000ff").unwrap();
-    let l = new_random_node_id();
+    let j = new_random_node_id();
+    let k = new_random_node_id();
+    println!("{}", j);
     println!("{}", k);
-    println!("{}", l);
+    println!("{:?}", j.cmp(&k));
+    println!("{:?}", j.cmp(&j));
 }
 
 fn new_node_id(input: &str) -> Result<NodeID, &str> {
