@@ -44,7 +44,7 @@ impl RoutingTable {
     }
 
     fn update(&mut self, contact: Contact) {
-        let prefix_len = dist(&self.origin, &contact.id).zeroes_in_prefix();
+        let prefix_len = dist(self.origin, contact.id).zeroes_in_prefix();
         let bucket = &mut self.buckets[prefix_len];
         let index = bucket.iter().position(|x| *x == contact);
         match index {
@@ -98,7 +98,7 @@ impl Display for NodeID {
     }
 }
 
-fn dist(x: &NodeID, y: &NodeID) -> NodeID{
+fn dist(x: NodeID, y: NodeID) -> NodeID{
     let mut res = [0; ID_SIZE];
     for i in 0us..ID_SIZE {
         res[i] = x.0[i] ^ y.0[i];
