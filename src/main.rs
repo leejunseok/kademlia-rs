@@ -48,8 +48,16 @@ fn new_random_node_id() -> NodeID {
 impl Display for NodeID {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         for x in self.0.iter().rev() {
-            write!(f, "{0:02x}", x);
+            try!(write!(f, "{0:02x}", x));
         }
         Ok(())
     }
+}
+
+fn dist(x: &NodeID, y: &NodeID) -> NodeID{
+    let mut res = [0; ID_LEN];
+    for i in 0us..ID_LEN {
+        res[i] = x.0[i] ^ y.0[i];
+    }
+    NodeID(res)
 }
