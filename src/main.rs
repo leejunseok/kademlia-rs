@@ -4,14 +4,14 @@ extern crate rand;
 use std::fmt::{Error, Debug, Formatter};
 
 /// Length of an ID, in bytes
-const ID_SIZE: usize = 1;
+const KEY_LEN: usize = 1;
 /// Number of buckets (length of ID in bits)
-const N_BUCKETS: usize = ID_SIZE * 8;
+const N_BUCKETS: usize = KEY_LEN * 8;
 /// Number of contacts in each bucket
 const BUCKET_SIZE: usize = 20;
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-struct Key([u8; ID_SIZE]);
+struct Key([u8; KEY_LEN]);
 
 impl Debug for Key {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
@@ -23,27 +23,28 @@ impl Debug for Key {
 }
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-struct Distance([u8; ID_SIZE]);
+struct Distance([u8; KEY_LEN]);
 
 impl Debug for Distance {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         for x in self.0.iter() {
             try!(write!(f, "{0:08b}", x));
         }
+        try!(write!(f, " = {}", x));
         Ok(())
     }
 }
 
 impl Distance {
     fn zeroes_in_prefix(&self) -> usize {
-        for i in 0..ID_SIZE {
+        for i in 0..KEY_LEN {
             for j in 8us..0 {
                 if (self.0[i] >> (7 - j)) & 0x1 != 0 {
                     return i * 8 + j;
                 }
             }
         }
-        ID_SIZE * 8 - 1
+        KEY_LEN * 8 - 1
     }
 }
 
@@ -117,16 +118,16 @@ impl RoutingTable {
 }
 
 fn new_random_key() -> Key {
-    let mut res = [0; ID_SIZE];
-    for i in 0us..ID_SIZE {
+    let mut res = [0; KEY_LEN];
+    for i in 0us..KEY_LEN {
         res[i] = rand::random::<u8>();
     }
     Key(res)
 }
 
 fn dist(x: Key, y: Key) -> Distance{
-    let mut res = [0; ID_SIZE];
-    for i in 0us..ID_SIZE {
+    let mut res = [0; KEY_LEN];
+    for i in 0us..KEY_LEN {
         res[i] = x.0[i] ^ y.0[i];
     }
     Distance(res)
@@ -134,8 +135,9 @@ fn dist(x: Key, y: Key) -> Distance{
 
 fn main() {
     let mut r = RoutingTable::new(new_random_key());
+    let mut r = RoutingTable::new(Key([0; KEY_LEN]));
     println!("routing table id: {:?}", r.origin);
-    for _ in 0..4 {
+    for _ in 0..2 {
         let k = new_random_key();
         r.update( Contact { id: k } );
         println!("new node: {:?}", k);
