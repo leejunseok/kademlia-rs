@@ -103,35 +103,22 @@ impl RoutingTable {
         }
     }
 
-    fn find_closest_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
+    /// Lookup the nodes closest to item in this table
+    ///
+    /// NOTE: This method is a really stupid, linear time search. I can't find how to use the buckets
+    /// effectively (or if they're any help at all in solving this particular problem).
+    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
         if count == 0 {
             return Vec::new();
         }
-        let bucket_index = dist(self.node.id, item).zeroes_in_prefix();
         let mut ret = Vec::with_capacity(count);
-        for i in bucket_index..N_BUCKETS {
-            for c in &self.buckets[i] {
+        for bucket in self.buckets {
+            for node in bucket {
                 ret.push( (*c, dist(c.id, item)) );
-                if ret.len() == count {
-                    ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
-                    return ret;
-                }
-            }
-        }
-        if bucket_index == 0 {
-            return ret;
-        }
-        for i in (bucket_index-1)..0 {
-            for c in &self.buckets[i] {
-                ret.push( (*c, dist(c.id, item)) );
-                if ret.len() == count {
-                    ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
-                    return ret;
-                }
             }
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
-        ret
+        return ret;
     }
 
 }
