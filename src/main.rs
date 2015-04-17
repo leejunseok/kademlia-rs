@@ -1,13 +1,16 @@
-extern crate rustc_serialize;
+#![feature(io)]
+
 extern crate rand;
 
+use std::io::Read;
+use std::net::{TcpListener, TcpStream};
 use std::fmt::{Error, Debug, Formatter};
 
 /// Length of an ID, in bytes
 const KEY_LEN: usize = 20;
 /// Number of buckets (length of ID in bits)
 const N_BUCKETS: usize = KEY_LEN * 8;
-/// Number of contacts in each bucket
+/// Number of nodes in each bucket
 const BUCKET_SIZE: usize = 20;
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
@@ -48,29 +51,43 @@ impl Distance {
 }
 
 #[derive(Debug,Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-struct Contact {
+struct NodeInfo {
     id: Key,
 }
 
+struct DHTEndpoint {
+    routes: RoutingTable,
+    net_id: String,
+}
+
+impl DHTEndpoint {
+    fn new(node: NodeInfo, net_id: String) -> DHTEndpoint {
+        DHTEndpoint {
+            routes: RoutingTable::new(node),
+            net_id: net_id,
+        }
+    }
+}
+
 struct RoutingTable {
-    origin: Key,
-    buckets: Vec<Vec<Contact>>
+    node: NodeInfo,
+    buckets: Vec<Vec<NodeInfo>>
 }
 
 impl RoutingTable {
-    fn new(origin: Key) -> RoutingTable {
+    fn new(node: NodeInfo) -> RoutingTable {
         let mut buckets = Vec::new();
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
         }
-        RoutingTable { origin: origin, buckets: buckets }
+        RoutingTable { node: node, buckets: buckets }
     }
 
-    fn update(&mut self, contact: Contact) {
-        let bucket_index = dist(self.origin, contact.id).zeroes_in_prefix();
+    fn update(&mut self, node: NodeInfo) {
+        let bucket_index = dist(self.node.id, node.id).zeroes_in_prefix();
         let bucket = &mut self.buckets[bucket_index];
-        let contact_index = bucket.iter().position(|x| *x == contact);
-        match contact_index {
+        let node_index = bucket.iter().position(|x| *x == node);
+        match node_index {
             Some(i) => {
                 let swap = bucket[i];
                 bucket[i] = bucket[0];
@@ -78,17 +95,17 @@ impl RoutingTable {
             },
             None => {
                 if bucket.len() < BUCKET_SIZE {
-                    bucket.push(contact);
+                    bucket.push(node);
                 }
             },
         }
     }
 
-    fn find_closest_nodes(&self, item: Key, count: usize) -> Vec<(Contact, Distance)> {
+    fn find_closest_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
         if count == 0 {
             return Vec::new();
         }
-        let bucket_index = dist(self.origin, item).zeroes_in_prefix();
+        let bucket_index = dist(self.node.id, item).zeroes_in_prefix();
         let mut ret = Vec::with_capacity(count);
         for i in bucket_index..N_BUCKETS {
             for c in &self.buckets[i] {
@@ -133,16 +150,28 @@ fn dist(x: Key, y: Key) -> Distance{
     Distance(res)
 }
 
+fn handle_client(stream: TcpStream) {
+    let mut s = String::new();
+    let mut stream = stream;
+    stream.read_to_string(&mut s);
+    println!("{}", s);
+}
+
 fn main() {
-    let mut r = RoutingTable::new(new_random_key());
-    println!("routing table id: {:?}", r.origin);
-    for _ in 0..5000 {
-        let k = new_random_key();
-        r.update( Contact { id: k } );
-        println!("new node: {:?}", k);
+    let dht = DHTEndpoint::new(NodeInfo { id: new_random_key() }, "test_net".to_string());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    println!("DHT endpoint setup for network '{}' complete", dht.net_id);
+    println!("Server started at {:?}", listener.local_addr().unwrap());
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                std::thread::spawn(move || {
+                    handle_client(stream);
+                });
+            }
+            Err(e) => {
+                println!("Some connection failed");
+            }
+        }
     }
-    let item_id = new_random_key();
-    println!("item key: {:?}", item_id);
-    let results = r.find_closest_nodes(item_id, 3);
-    println!("{:?}", results);
 }
