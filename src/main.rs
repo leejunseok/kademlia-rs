@@ -4,7 +4,7 @@ extern crate rand;
 use std::fmt::{Error, Debug, Formatter};
 
 /// Length of an ID, in bytes
-const KEY_LEN: usize = 1;
+const KEY_LEN: usize = 20;
 /// Number of buckets (length of ID in bits)
 const N_BUCKETS: usize = KEY_LEN * 8;
 /// Number of contacts in each bucket
@@ -16,7 +16,7 @@ struct Key([u8; KEY_LEN]);
 impl Debug for Key {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         for x in self.0.iter().rev() {
-            try!(write!(f, "{0:08b}", x));
+            try!(write!(f, "{0:02x}", x));
         }
         Ok(())
     }
@@ -28,9 +28,8 @@ struct Distance([u8; KEY_LEN]);
 impl Debug for Distance {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         for x in self.0.iter() {
-            try!(write!(f, "{0:08b}", x));
+            try!(write!(f, "{0:02x}", x));
         }
-        try!(write!(f, " = {}", x));
         Ok(())
     }
 }
@@ -112,6 +111,7 @@ impl RoutingTable {
                 }
             }
         }
+        ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
         ret
     }
 
@@ -135,15 +135,14 @@ fn dist(x: Key, y: Key) -> Distance{
 
 fn main() {
     let mut r = RoutingTable::new(new_random_key());
-    let mut r = RoutingTable::new(Key([0; KEY_LEN]));
     println!("routing table id: {:?}", r.origin);
-    for _ in 0..2 {
+    for _ in 0..5000 {
         let k = new_random_key();
         r.update( Contact { id: k } );
         println!("new node: {:?}", k);
     }
     let item_id = new_random_key();
-    println!("looking for item: {:?}", item_id);
+    println!("item key: {:?}", item_id);
     let results = r.find_closest_nodes(item_id, 3);
     println!("{:?}", results);
 }
