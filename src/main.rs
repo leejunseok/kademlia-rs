@@ -3,7 +3,7 @@
 extern crate rand;
 
 use std::io::Read;
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::fmt::{Error, Debug, Formatter};
 
 /// Length of an ID, in bytes
@@ -50,9 +50,10 @@ impl Distance {
     }
 }
 
-#[derive(Debug,Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
+#[derive(Debug,Copy,Clone)]
 struct NodeInfo {
     id: Key,
+    addr: SocketAddr,
 }
 
 struct DHTEndpoint {
@@ -86,7 +87,7 @@ impl RoutingTable {
     fn update(&mut self, node: NodeInfo) {
         let bucket_index = dist(self.node.id, node.id).zeroes_in_prefix();
         let bucket = &mut self.buckets[bucket_index];
-        let node_index = bucket.iter().position(|x| *x == node);
+        let node_index = bucket.iter().position(|x| x.id == node.id);
         match node_index {
             Some(i) => {
                 let swap = bucket[i];
@@ -150,18 +151,15 @@ fn dist(x: Key, y: Key) -> Distance{
     Distance(res)
 }
 
-fn handle_client(stream: TcpStream) {
-    let mut s = String::new();
-    let mut stream = stream;
-    stream.read_to_string(&mut s);
-    println!("{}", s);
+fn handle_client(mut stream: TcpStream) {
 }
 
 fn main() {
-    let dht = DHTEndpoint::new(NodeInfo { id: new_random_key() }, "test_net".to_string());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let dht = DHTEndpoint::new(NodeInfo { id: new_random_key(), addr: addr }, "test_net".to_string());
     println!("DHT endpoint setup for network '{}' complete", dht.net_id);
-    println!("Server started at {:?}", listener.local_addr().unwrap());
+    println!("Server started at {}", addr);
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
