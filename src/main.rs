@@ -3,11 +3,11 @@ extern crate rand;
 
 use std::fmt::{Error, Debug, Formatter};
 
-// Length of an ID, in bytes
+/// Length of an ID, in bytes
 const ID_SIZE: usize = 1;
-// Number of buckets (length of ID in bits)
+/// Number of buckets (length of ID in bits)
 const N_BUCKETS: usize = ID_SIZE * 8;
-// Number of contacts in each bucket
+/// Number of contacts in each bucket
 const BUCKET_SIZE: usize = 20;
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
@@ -58,7 +58,7 @@ struct RoutingTable {
 }
 
 impl RoutingTable {
-    fn new(origin: Key) -> RoutingTable{
+    fn new(origin: Key) -> RoutingTable {
         let mut buckets = Vec::new();
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
@@ -69,8 +69,8 @@ impl RoutingTable {
     fn update(&mut self, contact: Contact) {
         let bucket_index = dist(self.origin, contact.id).zeroes_in_prefix();
         let bucket = &mut self.buckets[bucket_index];
-        let index = bucket.iter().position(|x| *x == contact);
-        match index {
+        let contact_index = bucket.iter().position(|x| *x == contact);
+        match contact_index {
             Some(i) => {
                 let swap = bucket[i];
                 bucket[i] = bucket[0];
@@ -111,12 +111,12 @@ impl RoutingTable {
                 }
             }
         }
-        return ret;
+        ret
     }
 
 }
 
-fn new_random_node_id() -> Key {
+fn new_random_key() -> Key {
     let mut res = [0; ID_SIZE];
     for i in 0us..ID_SIZE {
         res[i] = rand::random::<u8>();
@@ -133,14 +133,14 @@ fn dist(x: Key, y: Key) -> Distance{
 }
 
 fn main() {
-    let mut r = RoutingTable::new(new_random_node_id());
+    let mut r = RoutingTable::new(new_random_key());
     println!("routing table id: {:?}", r.origin);
     for _ in 0..4 {
-        let k = new_random_node_id();
+        let k = new_random_key();
         r.update( Contact { id: k } );
         println!("new node: {:?}", k);
     }
-    let item_id = new_random_node_id();
+    let item_id = new_random_key();
     println!("looking for item: {:?}", item_id);
     let results = r.find_closest_nodes(item_id, 3);
     println!("{:?}", results);
