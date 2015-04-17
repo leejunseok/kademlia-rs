@@ -1,5 +1,3 @@
-#![feature(io)]
-
 extern crate rand;
 
 use std::io::Read;
@@ -12,6 +10,8 @@ const KEY_LEN: usize = 20;
 const N_BUCKETS: usize = KEY_LEN * 8;
 /// Number of nodes in each bucket
 const BUCKET_SIZE: usize = 20;
+/// Message length
+const MESSAGE_LEN: usize = 256;
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
 struct Key([u8; KEY_LEN]);
@@ -84,21 +84,22 @@ impl RoutingTable {
         RoutingTable { node: node, buckets: buckets }
     }
 
+    /// Update the appropriate bucket with the new node's info
     fn update(&mut self, node: NodeInfo) {
         let bucket_index = dist(self.node.id, node.id).zeroes_in_prefix();
         let bucket = &mut self.buckets[bucket_index];
         let node_index = bucket.iter().position(|x| x.id == node.id);
         match node_index {
             Some(i) => {
-                let swap = bucket[i];
-                bucket[i] = bucket[0];
-                bucket[0] = swap;
-            },
+                bucket.push(bucket.remove(i));
+            }
             None => {
                 if bucket.len() < BUCKET_SIZE {
                     bucket.push(node);
+                } else {
+                    // go through bucket, pinging nodes, replace one that doesn't respond
                 }
-            },
+            }
         }
     }
 
@@ -151,7 +152,12 @@ fn dist(x: Key, y: Key) -> Distance{
     Distance(res)
 }
 
+struct Message([u8; MESSAGE_LEN]);
+
 fn handle_client(mut stream: TcpStream) {
+    let mut msg = Message([0; MESSAGE_LEN]);
+    stream.read(&mut msg.0);
+    print!("START STRING ({}) END", std::str::from_utf8(&msg.0).unwrap());
 }
 
 fn main() {
