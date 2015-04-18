@@ -14,18 +14,34 @@ pub struct DHTEndpoint {
 }
 
 impl DHTEndpoint {
-    pub fn new(node_id: Key, node_addr: SocketAddr, net_id: String) -> DHTEndpoint {
+    pub fn start(node_id: Key, node_addr: SocketAddr, net_id: String) -> DHTEndpoint {
         DHTEndpoint {
             routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
         }
     }
 
-    pub fn get(key: String) -> Result<String, &'static str> {
+    pub fn get(&mut self, key: String) -> Result<String, &'static str> {
         Err("not implemented")
     }
 
-    pub fn put(key: String, val: String) -> Result<(), &'static str> {
+    pub fn put(&mut self, key: String, val: String) -> Result<(), &'static str> {
+        Err("not implemented")
+    }
+
+    fn ping(&mut self, node: NodeInfo) -> Result<(), &'static str> {
+        Err("not implemented")
+    }
+
+    fn store(&mut self, key: Key, val: String) -> Result<(), &'static str> {
+        Err("not implemented")
+    }
+
+    fn find_nodes(&mut self, key: Key) -> Result<Vec<NodeInfo>, &'static str> {
+        Err("not implemented")
+    }
+
+    fn find_val(&mut self, key: Key) -> Result<String, &'static str> {
         Err("not implemented")
     }
 }
