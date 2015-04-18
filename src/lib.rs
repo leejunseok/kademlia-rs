@@ -1,12 +1,16 @@
 extern crate rand;
+extern crate rustc_serialize;
+
+use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
+use rustc_serialize::hex::ToHex;
 
 use std::fmt::{Error, Debug, Formatter};
-use std::net::SocketAddr;
+use std::net::{UdpSocket, SocketAddr};
 
 const KEY_LEN: usize = 20;
 const N_BUCKETS: usize = KEY_LEN * 8;
 const BUCKET_SIZE: usize = 20;
-const MESSAGE_LEN: usize = 256;
+const MESSAGE_LEN: usize = 8196;
 
 pub struct DHTEndpoint {
     routes: RoutingTable,
@@ -14,12 +18,28 @@ pub struct DHTEndpoint {
 }
 
 impl DHTEndpoint {
-    pub fn start(node_id: Key, node_addr: SocketAddr, net_id: String) -> DHTEndpoint {
+    pub fn new(node_id: Key, node_addr: String, net_id: String) -> DHTEndpoint {
         DHTEndpoint {
             routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
         }
     }
+
+    pub fn start(&mut self, bootstrap: String) {
+        let mut socket = UdpSocket::bind(&self.routes.node.addr[..]).unwrap();
+        println!("{:?}", socket.local_addr().unwrap());
+        let mut buf = [0u8; MESSAGE_LEN];
+        loop {
+            let (len, src) = socket.recv_from(&mut buf).unwrap();
+            let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
+            let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
+            match msg.payload {
+                Payload::Request(_) => { self.handle_request(&mut socket, &msg) }
+                Payload::Reply(_) => { self.handle_reply(&mut socket, &msg) }
+            }
+        }
+    }
+
 
     pub fn get(&mut self, key: String) -> Result<String, &'static str> {
         Err("not implemented")
@@ -27,6 +47,21 @@ impl DHTEndpoint {
 
     pub fn put(&mut self, key: String, val: String) -> Result<(), &'static str> {
         Err("not implemented")
+    }
+
+    fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
+        match msg.payload {
+            Payload::Request(Request::PingRequest) => {
+                let reply = Message { src: self.routes.node.clone(), token: Key::random(), payload: Payload::Reply(Reply::PingReply) };
+                let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
+                println!("{}", encoded_reply);
+                //let sent_len = socket.send_to(&encoded_reply.into_bytes(), &msg.src.addr[..]).unwrap();
+            }
+            _ => { }
+        }
+    }
+
+    fn handle_reply(&mut self, socket: &mut UdpSocket, msg: &Message) {
     }
 
     fn ping(&mut self, node: NodeInfo) -> Result<(), &'static str> {
@@ -92,7 +127,7 @@ impl RoutingTable {
         let mut ret = Vec::with_capacity(count);
         for bucket in &self.buckets {
             for node in bucket {
-                ret.push( (*node, Distance::dist(node.id, item)) );
+                ret.push( (node.clone(), Distance::dist(node.id, item)) );
             }
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
@@ -102,10 +137,10 @@ impl RoutingTable {
 
 }
 
-#[derive(Debug,Copy,Clone)]
-struct NodeInfo {
-    id: Key,
-    addr: SocketAddr,
+#[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
+pub struct NodeInfo {
+    pub id: Key,
+    pub addr: String,
 }
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
@@ -128,6 +163,32 @@ impl Debug for Key {
             try!(write!(f, "{0:02x}", x));
         }
         Ok(())
+    }
+}
+
+impl Decodable for Key {
+    fn decode<D: Decoder>(d: &mut D) -> Result<Key, D::Error> {
+        d.read_seq(|d, len| {
+            if len != KEY_LEN {
+                return Err(d.error("Wrong length key!"));
+            }
+            let mut ret = [0; KEY_LEN];
+            for i in 0..KEY_LEN {
+                ret[i] = try!(d.read_seq_elt(i, Decodable::decode));
+            }
+            Ok(Key(ret))
+        })
+    }
+}
+
+impl Encodable for Key {
+    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_seq(KEY_LEN, |s| {
+            for i in 0..KEY_LEN {
+                try!(s.emit_seq_elt(i, |s| self.0[i].encode(s)));
+            }
+            Ok(())
+        })
     }
 }
 
@@ -165,27 +226,31 @@ impl Debug for Distance {
     }
 }
 
-struct Message {
-    src: Key,
-    token: Key,
-    payload: Payload,
+#[derive(Debug,RustcEncodable, RustcDecodable)]
+pub struct Message {
+    pub src: NodeInfo,
+    pub token: Key,
+    pub payload: Payload,
 }
 
-enum Payload {
+#[derive(Debug,RustcEncodable, RustcDecodable)]
+pub enum Payload {
     Request(Request),
-    Response(Response),
+    Reply(Reply),
 }
 
-enum Request {
+#[derive(Debug,RustcEncodable, RustcDecodable)]
+pub enum Request {
     PingRequest,
     StoreRequest,
     FindNodeRequest,
     FindValueRequest,
 }
 
-enum Response {
-    PingResponse,
-    StoreResponse,
-    FindNodeResponse,
-    FindValueResponse,
+#[derive(Debug,RustcEncodable, RustcDecodable)]
+pub enum Reply {
+    PingReply,
+    StoreReply,
+    FindNodeReply,
+    FindValueReply,
 }
