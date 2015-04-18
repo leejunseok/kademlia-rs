@@ -19,26 +19,28 @@ pub struct DHTEndpoint {
 
 impl DHTEndpoint {
     pub fn start(net_id: String, node_id: Key, node_addr: String, bootstrap: String) {
-        let endpoint_arc = Arc::new(Mutex::new(DHTEndpoint {
+        let mut dht = DHTEndpoint {
             routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
-        }));
-        let mut socket = UdpSocket::bind(&endpoint.routes.node.addr[..]).unwrap();
+        };
+        let mut socket = UdpSocket::bind(&dht.routes.node.addr[..]).unwrap();
         let actual_addr = socket.local_addr().unwrap().to_string();
-        if actual_addr != endpoint.routes.node.addr {
-            endpoint.routes.node.addr = actual_addr;
-            println!("DHTEndpoint's node address was updated to {:?}", endpoint.routes.node.addr);
+        if actual_addr != dht.routes.node.addr {
+            dht.routes.node.addr = actual_addr;
+            println!("DHTEndpoint's node address was updated to {:?}", dht.routes.node.addr);
         }
+
+        let dht_arc = Arc::new(Mutex::new(dht));
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
-            let cloned = endpoint_arc.clone();
-            let mut endpoint = cloned.lock().unwrap();
+            let cloned = dht_arc.clone();
+            let mut dht = cloned.lock().unwrap();
             let (len, src) = socket.recv_from(&mut buf).unwrap();
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
             match msg.payload {
-                Payload::Request(_) => { endpoint.handle_request(&mut socket, &msg) }
-                Payload::Reply(_) => { endpoint.handle_reply(&mut socket, &msg) }
+                Payload::Request(_) => { dht.handle_request(&mut socket, &msg) }
+                Payload::Reply(_) => { dht.handle_reply(&mut socket, &msg) }
             }
         }
     }
