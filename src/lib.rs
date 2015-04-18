@@ -27,7 +27,11 @@ impl DHTEndpoint {
 
     pub fn start(&mut self, bootstrap: String) {
         let mut socket = UdpSocket::bind(&self.routes.node.addr[..]).unwrap();
-        println!("{:?}", socket.local_addr().unwrap());
+        let actual_addr = socket.local_addr().unwrap().to_string();
+        if actual_addr != self.routes.node.addr {
+            self.routes.node.addr = actual_addr;
+            println!("DHTEndpoint's node address was updated to {:?}", self.routes.node.addr);
+        }
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
             let (len, src) = socket.recv_from(&mut buf).unwrap();
@@ -55,7 +59,7 @@ impl DHTEndpoint {
                 let reply = Message { src: self.routes.node.clone(), token: Key::random(), payload: Payload::Reply(Reply::PingReply) };
                 let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
                 println!("{}", encoded_reply);
-                //let sent_len = socket.send_to(&encoded_reply.into_bytes(), &msg.src.addr[..]).unwrap();
+                let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
             }
             _ => { }
         }
