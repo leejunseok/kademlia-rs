@@ -56,7 +56,7 @@ impl DHTEndpoint {
     fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
-                let reply = Message { src: self.routes.node.clone(), token: Key::random(), payload: Payload::Reply(Reply::PingReply) };
+                let reply = Message { src: self.routes.node.clone(), token: msg.token, payload: Payload::Reply(Reply::PingReply) };
                 let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
                 println!("{}", encoded_reply);
                 let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
@@ -101,7 +101,7 @@ impl RoutingTable {
 
     /// Update the appropriate bucket with the new node's info
     fn update(&mut self, node: NodeInfo) {
-        let bucket_index = Distance::dist(self.node.id, node.id).zeroes_in_prefix();
+        let bucket_index = self.lookup_bucket_index(node.id);
         let bucket = &mut self.buckets[bucket_index];
         let node_index = bucket.iter().position(|x| x.id == node.id);
         match node_index {
@@ -136,9 +136,12 @@ impl RoutingTable {
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
         ret.truncate(count);
-        return ret;
+        ret
     }
 
+    fn lookup_bucket_index(&self, item: Key) -> usize {
+        Distance::dist(self.node.id, item).zeroes_in_prefix()
+    }
 }
 
 #[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
