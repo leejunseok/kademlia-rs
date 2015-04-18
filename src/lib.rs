@@ -38,6 +38,8 @@ impl DHTEndpoint {
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
 
+            println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
+
             let cloned_dht_arc = dht_arc.clone();
             let mut cloned_socket = socket.try_clone().unwrap();
             thread::spawn(move || {
@@ -72,8 +74,8 @@ impl DHTEndpoint {
                     payload: Payload::Reply(Reply::PingReply)
                 };
                 let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
-                println!("{}", encoded_reply);
                 let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
                 drop(dht);
             }
             _ => { }
