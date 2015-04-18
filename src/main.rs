@@ -1,8 +1,4 @@
 extern crate rand;
-extern crate rustc_serialize;
-
-use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
-use rustc_serialize::hex::ToHex;
 
 use std::io::Read;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -19,25 +15,6 @@ const MESSAGE_LEN: usize = 256;
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
 struct Key([u8; KEY_LEN]);
-
-impl Decodable for Key {
-    fn decode<D: Decoder>(d: &mut D) -> Result<Key, D::Error> {
-        let mut ret = [0; KEY_LEN];
-        for i in 0..KEY_LEN {
-            ret[i] = try!(d.read_u8());
-        }
-        Ok(Key(ret))
-    }
-}
-
-impl Encodable for Key {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        for byte in &self.0 {
-            s.emit_u8(*byte);
-        }
-        Ok(())
-    }
-}
 
 impl Debug for Key {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
@@ -167,8 +144,6 @@ fn dist(x: Key, y: Key) -> Distance{
     Distance(res)
 }
 
-
-#[derive(RustcEncodable, RustcDecodable)]
 enum Request {
     PingRequest,
     StoreRequest,
@@ -176,7 +151,6 @@ enum Request {
     FindValueRequest,
 }
 
-#[derive(RustcEncodable, RustcDecodable)]
 enum Response {
     PingResponse,
     StoreResponse,
@@ -184,19 +158,16 @@ enum Response {
     FindValueResponse,
 }
 
-#[derive(RustcEncodable, RustcDecodable)]
 enum Payload {
     Request(Request),
     Response(Response),
 }
 
-#[derive(RustcEncodable, RustcDecodable)]
 struct Message {
     src: Key,
     token: Key,
     payload: Payload,
 }
-
 
 fn handle_client(mut stream: TcpStream) {
     let mut msg = Vec::new();
