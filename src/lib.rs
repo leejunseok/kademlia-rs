@@ -2,10 +2,9 @@ extern crate rand;
 extern crate rustc_serialize;
 
 use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
-use rustc_serialize::hex::ToHex;
 
 use std::fmt::{Error, Debug, Formatter};
-use std::net::{UdpSocket, SocketAddr};
+use std::net::UdpSocket;
 
 const KEY_LEN: usize = 20;
 const N_BUCKETS: usize = KEY_LEN * 8;
@@ -18,19 +17,16 @@ pub struct DHTEndpoint {
 }
 
 impl DHTEndpoint {
-    pub fn new(node_id: Key, node_addr: String, net_id: String) -> DHTEndpoint {
-        DHTEndpoint {
+    pub fn start(net_id: String, node_id: Key, node_addr: String, bootstrap: String) {
+        let mut endpoint = DHTEndpoint {
             routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
-        }
-    }
-
-    pub fn start(&mut self, bootstrap: String) {
-        let mut socket = UdpSocket::bind(&self.routes.node.addr[..]).unwrap();
+        };
+        let mut socket = UdpSocket::bind(&endpoint.routes.node.addr[..]).unwrap();
         let actual_addr = socket.local_addr().unwrap().to_string();
-        if actual_addr != self.routes.node.addr {
-            self.routes.node.addr = actual_addr;
-            println!("DHTEndpoint's node address was updated to {:?}", self.routes.node.addr);
+        if actual_addr != endpoint.routes.node.addr {
+            endpoint.routes.node.addr = actual_addr;
+            println!("DHTEndpoint's node address was updated to {:?}", endpoint.routes.node.addr);
         }
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
@@ -38,8 +34,8 @@ impl DHTEndpoint {
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
             match msg.payload {
-                Payload::Request(_) => { self.handle_request(&mut socket, &msg) }
-                Payload::Reply(_) => { self.handle_reply(&mut socket, &msg) }
+                Payload::Request(_) => { endpoint.handle_request(&mut socket, &msg) }
+                Payload::Reply(_) => { endpoint.handle_reply(&mut socket, &msg) }
             }
         }
     }
@@ -56,7 +52,11 @@ impl DHTEndpoint {
     fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
-                let reply = Message { src: self.routes.node.clone(), token: msg.token, payload: Payload::Reply(Reply::PingReply) };
+                let reply = Message {
+                    src: self.routes.node.clone(),
+                    token: msg.token,
+                    payload: Payload::Reply(Reply::PingReply)
+                };
                 let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
                 println!("{}", encoded_reply);
                 let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
