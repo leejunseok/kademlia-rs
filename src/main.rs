@@ -1,4 +1,8 @@
 extern crate rand;
+extern crate rustc_serialize;
+
+use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
+use rustc_serialize::hex::ToHex;
 
 use std::io::Read;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -15,6 +19,25 @@ const MESSAGE_LEN: usize = 256;
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
 struct Key([u8; KEY_LEN]);
+
+impl Decodable for Key {
+    fn decode<D: Decoder>(d: &mut D) -> Result<Key, D::Error> {
+        let mut ret = [0; KEY_LEN];
+        for i in 0..KEY_LEN {
+            ret[i] = try!(d.read_u8());
+        }
+        Ok(Key(ret))
+    }
+}
+
+impl Encodable for Key {
+    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        for byte in &self.0 {
+            s.emit_u8(*byte);
+        }
+        Ok(())
+    }
+}
 
 impl Debug for Key {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
@@ -91,13 +114,15 @@ impl RoutingTable {
         let node_index = bucket.iter().position(|x| x.id == node.id);
         match node_index {
             Some(i) => {
-                bucket.push(bucket.remove(i));
+                let temp = bucket.remove(i);
+                bucket.push(temp);
             }
             None => {
                 if bucket.len() < BUCKET_SIZE {
                     bucket.push(node);
                 } else {
-                    // go through bucket, pinging nodes, replace one that doesn't respond
+                    // go through bucket, pinging nodes, replace one
+                    // that doesn't respond.
                 }
             }
         }
@@ -105,24 +130,26 @@ impl RoutingTable {
 
     /// Lookup the nodes closest to item in this table
     ///
-    /// NOTE: This method is a really stupid, linear time search. I can't find how to use the buckets
-    /// effectively (or if they're any help at all in solving this particular problem).
+    /// NOTE: This method is a really stupid, linear time search. I can't find
+    /// info on how to use the buckets effectively to solve this.
     fn lookup_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
         if count == 0 {
             return Vec::new();
         }
         let mut ret = Vec::with_capacity(count);
-        for bucket in self.buckets {
+        for bucket in &self.buckets {
             for node in bucket {
-                ret.push( (*c, dist(c.id, item)) );
+                ret.push( (*node, dist(node.id, item)) );
             }
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
+        ret.truncate(count);
         return ret;
     }
 
 }
 
+/// Returns a random, KEY_LEN long byte string.
 fn new_random_key() -> Key {
     let mut res = [0; KEY_LEN];
     for i in 0us..KEY_LEN {
@@ -131,6 +158,7 @@ fn new_random_key() -> Key {
     Key(res)
 }
 
+/// XORs two Keys
 fn dist(x: Key, y: Key) -> Distance{
     let mut res = [0; KEY_LEN];
     for i in 0us..KEY_LEN {
@@ -139,12 +167,43 @@ fn dist(x: Key, y: Key) -> Distance{
     Distance(res)
 }
 
-struct Message([u8; MESSAGE_LEN]);
+
+#[derive(RustcEncodable, RustcDecodable)]
+enum Request {
+    PingRequest,
+    StoreRequest,
+    FindNodeRequest,
+    FindValueRequest,
+}
+
+#[derive(RustcEncodable, RustcDecodable)]
+enum Response {
+    PingResponse,
+    StoreResponse,
+    FindNodeResponse,
+    FindValueResponse,
+}
+
+#[derive(RustcEncodable, RustcDecodable)]
+enum Payload {
+    Request(Request),
+    Response(Response),
+}
+
+#[derive(RustcEncodable, RustcDecodable)]
+struct Message {
+    src: Key,
+    token: Key,
+    payload: Payload,
+}
+
 
 fn handle_client(mut stream: TcpStream) {
-    let mut msg = Message([0; MESSAGE_LEN]);
-    stream.read(&mut msg.0);
-    print!("START STRING ({}) END", std::str::from_utf8(&msg.0).unwrap());
+    let mut msg = Vec::new();
+    for byte in stream.bytes() {
+        let byte = byte.unwrap();
+        msg.push(byte);
+    }
 }
 
 fn main() {
