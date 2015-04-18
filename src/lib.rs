@@ -66,6 +66,13 @@ impl DHTEndpoint {
     }
 
     fn handle_reply(&mut self, socket: &mut UdpSocket, msg: &Message) {
+        match msg.payload {
+            Payload::Reply(Reply::PingReply) => {
+                self.routes.update(msg.src.clone());
+                println!("Routing table updated");
+            }
+            _ => { }
+        }
     }
 
     fn ping(&mut self, node: NodeInfo) -> Result<(), &'static str> {
@@ -257,7 +264,6 @@ pub enum Request {
 #[derive(Debug,RustcEncodable, RustcDecodable)]
 pub enum Reply {
     PingReply,
-    StoreReply,
     FindNodeReply,
     FindValueReply,
 }
