@@ -9,26 +9,34 @@ const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 256;
 
 pub struct DHTEndpoint {
-    pub routes: RoutingTable,
+    routes: RoutingTable,
     pub net_id: String,
 }
 
 impl DHTEndpoint {
-    pub fn new(node: NodeInfo, net_id: String) -> DHTEndpoint {
+    pub fn new(node_id: Key, node_addr: SocketAddr, net_id: String) -> DHTEndpoint {
         DHTEndpoint {
-            routes: RoutingTable::new(node),
+            routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
         }
     }
+
+    pub fn get(key: String) -> Result<String, &'static str> {
+        Err("not implemented")
+    }
+
+    pub fn put(key: String, val: String) -> Result<(), &'static str> {
+        Err("not implemented")
+    }
 }
 
-pub struct RoutingTable {
-    pub node: NodeInfo,
-    pub buckets: Vec<Vec<NodeInfo>>
+struct RoutingTable {
+    node: NodeInfo,
+    buckets: Vec<Vec<NodeInfo>>
 }
 
 impl RoutingTable {
-    pub fn new(node: NodeInfo) -> RoutingTable {
+    fn new(node: NodeInfo) -> RoutingTable {
         let mut buckets = Vec::new();
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
@@ -37,7 +45,7 @@ impl RoutingTable {
     }
 
     /// Update the appropriate bucket with the new node's info
-    pub fn update(&mut self, node: NodeInfo) {
+    fn update(&mut self, node: NodeInfo) {
         let bucket_index = Distance::dist(self.node.id, node.id).zeroes_in_prefix();
         let bucket = &mut self.buckets[bucket_index];
         let node_index = bucket.iter().position(|x| x.id == node.id);
@@ -61,7 +69,7 @@ impl RoutingTable {
     ///
     /// NOTE: This method is a really stupid, linear time search. I can't find
     /// info on how to use the buckets effectively to solve this.
-    pub fn lookup_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
+    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
         if count == 0 {
             return Vec::new();
         }
@@ -79,9 +87,9 @@ impl RoutingTable {
 }
 
 #[derive(Debug,Copy,Clone)]
-pub struct NodeInfo {
-    pub id: Key,
-    pub addr: SocketAddr,
+struct NodeInfo {
+    id: Key,
+    addr: SocketAddr,
 }
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
@@ -108,11 +116,11 @@ impl Debug for Key {
 }
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-pub struct Distance([u8; KEY_LEN]);
+struct Distance([u8; KEY_LEN]);
 
 impl Distance {
     /// XORs two Keys
-    pub fn dist(x: Key, y: Key) -> Distance{
+    fn dist(x: Key, y: Key) -> Distance{
         let mut res = [0; KEY_LEN];
         for i in 0us..KEY_LEN {
             res[i] = x.0[i] ^ y.0[i];
@@ -120,7 +128,7 @@ impl Distance {
         Distance(res)
     }
 
-    pub fn zeroes_in_prefix(&self) -> usize {
+    fn zeroes_in_prefix(&self) -> usize {
         for i in 0..KEY_LEN {
             for j in 8us..0 {
                 if (self.0[i] >> (7 - j)) & 0x1 != 0 {
