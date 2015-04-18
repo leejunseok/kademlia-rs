@@ -3,6 +3,7 @@ extern crate rustc_serialize;
 
 use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
 
+use std::sync::{Arc, Mutex};
 use std::fmt::{Error, Debug, Formatter};
 use std::net::UdpSocket;
 
@@ -18,10 +19,10 @@ pub struct DHTEndpoint {
 
 impl DHTEndpoint {
     pub fn start(net_id: String, node_id: Key, node_addr: String, bootstrap: String) {
-        let mut endpoint = DHTEndpoint {
+        let endpoint_arc = Arc::new(Mutex::new(DHTEndpoint {
             routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
-        };
+        }));
         let mut socket = UdpSocket::bind(&endpoint.routes.node.addr[..]).unwrap();
         let actual_addr = socket.local_addr().unwrap().to_string();
         if actual_addr != endpoint.routes.node.addr {
@@ -30,6 +31,8 @@ impl DHTEndpoint {
         }
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
+            let cloned = endpoint_arc.clone();
+            let mut endpoint = cloned.lock().unwrap();
             let (len, src) = socket.recv_from(&mut buf).unwrap();
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
