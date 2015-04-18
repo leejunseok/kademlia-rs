@@ -6,6 +6,7 @@ use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
 use std::sync::{Arc, Mutex};
 use std::fmt::{Error, Debug, Formatter};
 use std::net::UdpSocket;
+use std::thread;
 
 const KEY_LEN: usize = 20;
 const N_BUCKETS: usize = KEY_LEN * 8;
@@ -33,15 +34,22 @@ impl DHTEndpoint {
         let dht_arc = Arc::new(Mutex::new(dht));
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
-            let cloned = dht_arc.clone();
-            let mut dht = cloned.lock().unwrap();
             let (len, src) = socket.recv_from(&mut buf).unwrap();
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
-            match msg.payload {
-                Payload::Request(_) => { dht.handle_request(&mut socket, &msg) }
-                Payload::Reply(_) => { dht.handle_reply(&mut socket, &msg) }
-            }
+
+            let cloned_dht_arc = dht_arc.clone();
+            let mut cloned_socket = socket.try_clone().unwrap();
+            thread::spawn(move || {
+                match msg.payload {
+                    Payload::Request(_) => {
+                        DHTEndpoint::handle_request(cloned_dht_arc, &mut cloned_socket, &msg)
+                    }
+                    Payload::Reply(_) => {
+                        DHTEndpoint::handle_reply(cloned_dht_arc, &mut cloned_socket, &msg)
+                    }
+                }
+            });
         }
     }
 
@@ -54,27 +62,31 @@ impl DHTEndpoint {
         Err("not implemented")
     }
 
-    fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_request(dht_arc: Arc<Mutex<DHTEndpoint>>, socket: &mut UdpSocket, msg: &Message) {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
+                let mut dht = dht_arc.lock().unwrap();
                 let reply = Message {
-                    src: self.routes.node.clone(),
+                    src: dht.routes.node.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply)
                 };
                 let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
                 println!("{}", encoded_reply);
                 let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                drop(dht);
             }
             _ => { }
         }
     }
 
-    fn handle_reply(&mut self, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_reply(dht_arc: Arc<Mutex<DHTEndpoint>>, socket: &mut UdpSocket, msg: &Message) {
         match msg.payload {
             Payload::Reply(Reply::PingReply) => {
-                self.routes.update(msg.src.clone());
+                let mut dht = dht_arc.lock().unwrap();
+                dht.routes.update(msg.src.clone());
                 println!("Routing table updated");
+                drop(dht);
             }
             _ => { }
         }
