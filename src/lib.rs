@@ -31,8 +31,8 @@ impl DhtHandle {
         };
         let routes = RoutingTable::new(node_info);
         println!("New node created at {:?} with ID {:?}",
-                 &routes.node.addr,
-                 &routes.node.id);
+                 &routes.node_info.addr,
+                 &routes.node_info.id);
 
         DhtHandle {
             routes: Arc::new(Mutex::new(routes)),
@@ -50,7 +50,7 @@ impl DhtHandle {
             Payload::Request(Request::PingRequest) => {
                 let routes = self.routes.lock().unwrap();
                 Message {
-                    src: routes.node.clone(),
+                    src: routes.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply),
                 }
@@ -61,7 +61,7 @@ impl DhtHandle {
             Payload::Request(Request::FindNodeRequest(id)) => {
                 let routes = self.routes.lock().unwrap();
                 Message {
-                    src: routes.node.clone(),
+                    src: routes.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, 3))),
                 }
@@ -136,26 +136,26 @@ impl Clone for RpcEndpoint {
 }
 
 struct RoutingTable {
-    node: NodeInfo,
+    node_info: NodeInfo,
     buckets: Vec<Vec<NodeInfo>>
 }
 
 impl RoutingTable {
-    fn new(node: NodeInfo) -> RoutingTable {
+    fn new(node_info: NodeInfo) -> RoutingTable {
         let mut buckets = Vec::new();
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
         }
-        let mut ret = RoutingTable { node: node.clone(), buckets: buckets };
-        ret.update(node);
+        let mut ret = RoutingTable { node_info: node_info.clone(), buckets: buckets };
+        ret.update(node_info);
         ret
     }
 
     /// Update the appropriate bucket with the new node's info
-    fn update(&mut self, node: NodeInfo) {
-        let bucket_index = self.lookup_bucket_index(node.id);
+    fn update(&mut self, node_info: NodeInfo) {
+        let bucket_index = self.lookup_bucket_index(node_info.id);
         let bucket = &mut self.buckets[bucket_index];
-        let node_index = bucket.iter().position(|x| x.id == node.id);
+        let node_index = bucket.iter().position(|x| x.id == node_info.id);
         match node_index {
             Some(i) => {
                 let temp = bucket.remove(i);
@@ -163,7 +163,7 @@ impl RoutingTable {
             }
             None => {
                 if bucket.len() < BUCKET_SIZE {
-                    bucket.push(node);
+                    bucket.push(node_info);
                 } else {
                     // go through bucket, pinging nodes, replace one
                     // that doesn't respond.
@@ -182,8 +182,8 @@ impl RoutingTable {
         }
         let mut ret = Vec::with_capacity(count);
         for bucket in &self.buckets {
-            for node in bucket {
-                ret.push( (node.clone(), Distance::dist(node.id, item)) );
+            for node_info in bucket {
+                ret.push( (node_info.clone(), Distance::dist(node_info.id, item)) );
             }
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
@@ -192,7 +192,7 @@ impl RoutingTable {
     }
 
     fn lookup_bucket_index(&self, item: Key) -> usize {
-        Distance::dist(self.node.id, item).zeroes_in_prefix()
+        Distance::dist(self.node_info.id, item).zeroes_in_prefix()
     }
 }
 
