@@ -53,13 +53,12 @@ impl DHTEndpoint {
             println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
             let mut dht = self.clone();
-            let socket = self.rpc.socket.try_clone().unwrap();
             thread::spawn(move || {
                 match msg.payload {
                     Payload::Request(_) => {
                         let reply = dht.handle_request(&msg);
                         let enc_reply = json::encode(&reply).unwrap();
-                        socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                        dht.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
                         println!("| OUT | {:?} ==> {:?} ",
                                  reply.payload,
                                  reply.src.id);
@@ -82,7 +81,8 @@ impl DHTEndpoint {
                     payload: Payload::Reply(Reply::PingReply),
                 }
             }
-            Payload::Request(Request::StoreRequest(k, v)) => {
+            Payload::Request(Request::StoreRequest(ref k, ref v)) => {
+                panic!("Not implemented");
             }
             Payload::Request(Request::FindNodeRequest(id)) => {
                 let routes = self.routes.lock().unwrap();
@@ -92,7 +92,8 @@ impl DHTEndpoint {
                     payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, 3))),
                 }
             }
-            Payload::Request(Request::FindValueRequest(k)) => {
+            Payload::Request(Request::FindValueRequest(ref k)) => {
+                panic!("Not implemented");
             }
             _ => {
                 panic!("Handle request was given something that's not a request");
