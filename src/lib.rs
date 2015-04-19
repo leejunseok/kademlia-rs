@@ -16,14 +16,14 @@ const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
 #[derive(Clone)]
-pub struct DHTEndpoint {
+pub struct DhtHandle {
     routes: Arc<Mutex<RoutingTable>>,
     pub net_id: String,
-    rpc: RpcEndpoint,
+    rpc: Arc<RpcEndpoint>,
 }
 
-impl DHTEndpoint {
-    pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> DHTEndpoint {
+impl DhtHandle {
+    pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> DhtHandle {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
@@ -34,41 +34,15 @@ impl DHTEndpoint {
                  &routes.node.addr,
                  &routes.node.id);
 
-        DHTEndpoint {
+        DhtHandle {
             routes: Arc::new(Mutex::new(routes)),
             net_id: String::from(net_id),
-            rpc: RpcEndpoint { socket: socket },
+            rpc: Arc::new(RpcEndpoint { socket: socket }),
         }
     }
 
     pub fn start(&mut self, bootstrap: &str) {
-        let mut buf = [0u8; MESSAGE_LEN];
-        loop {
-            // NOTE: We currently just trust the src in the message, and ignore where
-            // it actually came from
-            let (len, _) = self.rpc.socket.recv_from(&mut buf).unwrap();
-            let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
-            let msg: Message = json::decode(&buf_str).unwrap();
-
-            println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
-
-            let mut dht = self.clone();
-            thread::spawn(move || {
-                match msg.payload {
-                    Payload::Request(_) => {
-                        let reply = dht.handle_request(&msg);
-                        let enc_reply = json::encode(&reply).unwrap();
-                        dht.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                        println!("| OUT | {:?} ==> {:?} ",
-                                 reply.payload,
-                                 reply.src.id);
-                    }
-                    Payload::Reply(_) => {
-                        dht.handle_reply(&msg)
-                    }
-                }
-            });
-        }
+        self.rpc.start_server(&*self);
     }
 
     fn handle_request(&mut self, msg: &Message) -> Message {
@@ -118,6 +92,41 @@ struct RpcEndpoint {
 }
 
 impl RpcEndpoint {
+    fn start_server(&self, dht: &DhtHandle) {
+        let dht = dht.clone();
+        let mut buf = [0u8; MESSAGE_LEN];
+        loop {
+            // NOTE: We currently just trust the src in the message, and ignore where
+            // it actually came from
+            let (len, _) = self.socket.recv_from(&mut buf).unwrap();
+            let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
+            let msg: Message = json::decode(&buf_str).unwrap();
+
+            println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
+
+            let mut dht = dht.clone();
+            match msg.payload {
+                Payload::Kill => {
+                    break;
+                }
+                Payload::Request(_) => {
+                    thread::spawn(move || {
+                        let reply = dht.handle_request(&msg);
+                        let enc_reply = json::encode(&reply).unwrap();
+                        dht.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                        println!("| OUT | {:?} ==> {:?} ",
+                                 reply.payload,
+                                 reply.src.id);
+                    });
+                }
+                Payload::Reply(_) => {
+                    thread::spawn(move || {
+                        dht.handle_reply(&msg)
+                    });
+                }
+            }
+        }
+    }
 }
 
 impl Clone for RpcEndpoint {
@@ -285,6 +294,7 @@ pub struct Message {
 
 #[derive(Debug,RustcEncodable, RustcDecodable)]
 pub enum Payload {
+    Kill,
     Request(Request),
     Reply(Reply),
 }
