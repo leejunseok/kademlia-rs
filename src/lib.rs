@@ -13,51 +13,41 @@ const N_BUCKETS: usize = KEY_LEN * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
+#[derive(Clone)]
 pub struct DHTEndpoint {
     routes: Arc<Mutex<RoutingTable>>,
     pub net_id: String,
-    socket: UdpSocket,
-}
-
-impl Clone for DHTEndpoint {
-    fn clone(&self) -> DHTEndpoint {
-        DHTEndpoint {
-            routes: self.routes.clone(),
-            net_id: self.net_id.clone(),
-            socket: self.socket.try_clone().unwrap(),
-        }
-    }
+    rpc: RpcEndpoint,
 }
 
 impl DHTEndpoint {
     pub fn new(net_id: String, node_id: Key, mut node_addr: String) -> DHTEndpoint {
         let mut socket = UdpSocket::bind(&node_addr[..]).unwrap();
-        let actual_addr = socket.local_addr().unwrap().to_string();
-        if actual_addr != node_addr {
-            node_addr = actual_addr;
-            println!("Node's address updated to {:?}", node_addr);
-        }
+        let node_info = NodeInfo {
+            id: node_id,
+            addr: socket.local_addr().unwrap().to_string(),
+        };
+        let routes = RoutingTable::new(node_info);
+        println!("New node created at {:?} with ID {:?}", &routes.node.addr, &routes.node.id);
 
-        let routes = RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } );
-        let mut dht = DHTEndpoint {
+        DHTEndpoint {
             routes: Arc::new(Mutex::new(routes)),
             net_id: net_id,
-            socket: socket,
-        };
-        dht
+            rpc: RpcEndpoint { socket: socket },
+        }
     }
 
     pub fn start(&mut self, bootstrap: String) {
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
-            let (len, src) = self.socket.recv_from(&mut buf).unwrap();
+            let (len, src) = self.rpc.socket.recv_from(&mut buf).unwrap();
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
 
             println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
             let mut cloned_dht = self.clone();
-            let mut cloned_socket = self.socket.try_clone().unwrap();
+            let mut cloned_socket = self.rpc.socket.try_clone().unwrap();
             thread::spawn(move || {
                 match msg.payload {
                     Payload::Request(_) => {
@@ -109,7 +99,13 @@ impl DHTEndpoint {
             _ => { }
         }
     }
+}
 
+struct RpcEndpoint {
+    socket: UdpSocket,
+}
+
+impl RpcEndpoint {
     fn ping(&mut self, socket: &mut UdpSocket, node: NodeInfo) -> Result<(), &'static str> {
         Err("not implemented")
     }
@@ -124,6 +120,12 @@ impl DHTEndpoint {
 
     fn find_val(&mut self, socket: &mut UdpSocket, key: Key) -> Result<String, &'static str> {
         Err("not implemented")
+    }
+}
+
+impl Clone for RpcEndpoint {
+    fn clone(&self) -> RpcEndpoint {
+        RpcEndpoint { socket: self.socket.try_clone().unwrap() }
     }
 }
 
