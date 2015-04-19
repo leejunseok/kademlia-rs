@@ -2,6 +2,7 @@ extern crate rand;
 extern crate rustc_serialize;
 
 use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
+use rustc_serialize::json;
 
 use std::sync::{Arc, Mutex};
 use std::fmt::{Error, Debug, Formatter};
@@ -28,7 +29,9 @@ impl DHTEndpoint {
             addr: socket.local_addr().unwrap().to_string(),
         };
         let routes = RoutingTable::new(node_info);
-        println!("New node created at {:?} with ID {:?}", &routes.node.addr, &routes.node.id);
+        println!("New node created at {:?} with ID {:?}",
+                 &routes.node.addr,
+                 &routes.node.id);
 
         DHTEndpoint {
             routes: Arc::new(Mutex::new(routes)),
@@ -42,22 +45,24 @@ impl DHTEndpoint {
         loop {
             let (len, src) = self.rpc.socket.recv_from(&mut buf).unwrap();
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
-            let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
+            let msg: Message = json::decode(&buf_str).unwrap();
 
             println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
-            let mut cloned_dht = self.clone();
-            let mut cloned_socket = self.rpc.socket.try_clone().unwrap();
+            let mut dht = self.clone();
+            let mut socket = self.rpc.socket.try_clone().unwrap();
             thread::spawn(move || {
                 match msg.payload {
                     Payload::Request(_) => {
-                        let reply = cloned_dht.handle_request(&msg);
-                        let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
-                        let sent_len = cloned_socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                        println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
+                        let reply = dht.handle_request(&msg);
+                        let enc_reply = json::encode(&reply).unwrap();
+                        socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                        println!("| OUT | {:?} ==> {:?} ",
+                                 reply.payload,
+                                 reply.src.id);
                     }
                     Payload::Reply(_) => {
-                        cloned_dht.handle_reply(&msg)
+                        dht.handle_reply(&msg)
                     }
                 }
             });
