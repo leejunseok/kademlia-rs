@@ -82,6 +82,14 @@ impl DHTEndpoint {
                     payload: Payload::Reply(Reply::PingReply),
                 }
             }
+            Payload::Request(Request::FindNodeRequest(id)) => {
+                let mut routes = self.routes.lock().unwrap();
+                Message {
+                    src: routes.node.clone(),
+                    token: msg.token,
+                    payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, 3))),
+                }
+            }
             _ => {
                 let mut routes = self.routes.lock().unwrap();
                 Message {
@@ -172,7 +180,7 @@ impl RoutingTable {
     ///
     /// NOTE: This method is a really stupid, linear time search. I can't find
     /// info on how to use the buckets effectively to solve this.
-    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
+    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<NodeInfo> {
         if count == 0 {
             return Vec::new();
         }
@@ -184,7 +192,7 @@ impl RoutingTable {
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
         ret.truncate(count);
-        ret
+        ret.into_iter().map(|p| p.0).collect()
     }
 
     fn lookup_bucket_index(&self, item: Key) -> usize {
@@ -298,13 +306,13 @@ pub enum Payload {
 pub enum Request {
     PingRequest,
     StoreRequest,
-    FindNodeRequest,
+    FindNodeRequest(Key),
     FindValueRequest,
 }
 
 #[derive(Debug,RustcEncodable, RustcDecodable)]
 pub enum Reply {
     PingReply,
-    FindNodeReply,
+    FindNodeReply(Vec<NodeInfo>),
     FindValueReply,
 }
