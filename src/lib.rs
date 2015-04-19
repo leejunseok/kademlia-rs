@@ -152,7 +152,9 @@ impl RoutingTable {
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
         }
-        RoutingTable { node: node, buckets: buckets }
+        let mut ret = RoutingTable { node: node.clone(), buckets: buckets };
+        ret.update(node);
+        ret
     }
 
     /// Update the appropriate bucket with the new node's info
