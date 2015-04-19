@@ -14,41 +14,57 @@ const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
 pub struct DHTEndpoint {
-    routes: RoutingTable,
+    routes: Arc<Mutex<RoutingTable>>,
     pub net_id: String,
+    socket: UdpSocket,
+}
+
+impl Clone for DHTEndpoint {
+    fn clone(&self) -> DHTEndpoint {
+        DHTEndpoint {
+            routes: self.routes.clone(),
+            net_id: self.net_id.clone(),
+            socket: self.socket.try_clone().unwrap(),
+        }
+    }
 }
 
 impl DHTEndpoint {
-    pub fn start(net_id: String, node_id: Key, node_addr: String, bootstrap: String) {
-        let mut dht = DHTEndpoint {
-            routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
-            net_id: net_id,
-        };
-        let mut socket = UdpSocket::bind(&dht.routes.node.addr[..]).unwrap();
+    pub fn new(net_id: String, node_id: Key, mut node_addr: String) -> DHTEndpoint {
+        let mut socket = UdpSocket::bind(&node_addr[..]).unwrap();
         let actual_addr = socket.local_addr().unwrap().to_string();
-        if actual_addr != dht.routes.node.addr {
-            dht.routes.node.addr = actual_addr;
-            println!("DHTEndpoint's node address was updated to {:?}", dht.routes.node.addr);
+        if actual_addr != node_addr {
+            node_addr = actual_addr;
+            println!("Node's address updated to {:?}", node_addr);
         }
 
-        let dht_arc = Arc::new(Mutex::new(dht));
+        let routes = RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } );
+        let mut dht = DHTEndpoint {
+            routes: Arc::new(Mutex::new(routes)),
+            net_id: net_id,
+            socket: socket,
+        };
+        dht
+    }
+
+    pub fn start(&mut self, bootstrap: String) {
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
-            let (len, src) = socket.recv_from(&mut buf).unwrap();
+            let (len, src) = self.socket.recv_from(&mut buf).unwrap();
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
 
             println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
-            let cloned_dht_arc = dht_arc.clone();
-            let mut cloned_socket = socket.try_clone().unwrap();
+            let mut cloned_dht = self.clone();
+            let mut cloned_socket = self.socket.try_clone().unwrap();
             thread::spawn(move || {
                 match msg.payload {
                     Payload::Request(_) => {
-                        DHTEndpoint::handle_request(cloned_dht_arc, &mut cloned_socket, &msg)
+                        cloned_dht.handle_request(&mut cloned_socket, &msg)
                     }
                     Payload::Reply(_) => {
-                        DHTEndpoint::handle_reply(cloned_dht_arc, &mut cloned_socket, &msg)
+                        cloned_dht.handle_reply(&mut cloned_socket, &msg)
                     }
                 }
             });
@@ -64,31 +80,31 @@ impl DHTEndpoint {
         Err("not implemented")
     }
 
-    fn handle_request(dht_arc: Arc<Mutex<DHTEndpoint>>, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
-                let mut dht = dht_arc.lock().unwrap();
+                let mut routes = self.routes.lock().unwrap();
                 let reply = Message {
-                    src: dht.routes.node.clone(),
+                    src: routes.node.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply)
                 };
+                drop(routes);
                 let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
                 let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
                 println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
-                drop(dht);
             }
             _ => { }
         }
     }
 
-    fn handle_reply(dht_arc: Arc<Mutex<DHTEndpoint>>, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_reply(&mut self, socket: &mut UdpSocket, msg: &Message) {
         match msg.payload {
             Payload::Reply(Reply::PingReply) => {
-                let mut dht = dht_arc.lock().unwrap();
-                dht.routes.update(msg.src.clone());
+                let mut routes = self.routes.lock().unwrap();
+                routes.update(msg.src.clone());
                 println!("Routing table updated");
-                drop(dht);
+                drop(routes);
             }
             _ => { }
         }

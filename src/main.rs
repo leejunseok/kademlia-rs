@@ -8,8 +8,6 @@ fn main() {
     let msg = Message { src: ni, token: Key::random(), payload: Payload::Request(Request::PingRequest)};
     println!("{}", rustc_serialize::json::encode(&msg).unwrap());
     println!("{}", rustc_serialize::json::encode(&msg).unwrap().len());
-    DHTEndpoint::start("test_net".to_string(),
-                       Key::random(),
-                       "127.0.0.1:0".to_string(),
-                       "127.0.0.1:0".to_string());
+    let mut dht = DHTEndpoint::new("test_net".to_string(), Key::random(), "127.0.0.1:0".to_string());
+    dht.start("127.0.0.1:0".to_string());
 }
