@@ -4,6 +4,7 @@ extern crate rustc_serialize;
 use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
 use rustc_serialize::json;
 
+use std::str;
 use std::sync::{Arc, Mutex};
 use std::fmt::{Error, Debug, Formatter};
 use std::net::UdpSocket;
@@ -23,7 +24,7 @@ pub struct DHTEndpoint {
 
 impl DHTEndpoint {
     pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> DHTEndpoint {
-        let mut socket = UdpSocket::bind(node_addr).unwrap();
+        let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
             addr: socket.local_addr().unwrap().to_string(),
@@ -43,14 +44,16 @@ impl DHTEndpoint {
     pub fn start(&mut self, bootstrap: &str) {
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
-            let (len, src) = self.rpc.socket.recv_from(&mut buf).unwrap();
-            let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
+            // NOTE: We currently just trust the src in the message, and ignore where
+            // it actually came from
+            let (len, _) = self.rpc.socket.recv_from(&mut buf).unwrap();
+            let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
             let msg: Message = json::decode(&buf_str).unwrap();
 
             println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
             let mut dht = self.clone();
-            let mut socket = self.rpc.socket.try_clone().unwrap();
+            let socket = self.rpc.socket.try_clone().unwrap();
             thread::spawn(move || {
                 match msg.payload {
                     Payload::Request(_) => {
@@ -69,39 +72,30 @@ impl DHTEndpoint {
         }
     }
 
-    pub fn get(&mut self, key: &str) -> Result<String, &'static str> {
-        Err("not implemented")
-    }
-
-    pub fn put(&mut self, key: &str, val: &str) -> Result<(), &'static str> {
-        Err("not implemented")
-    }
-
     fn handle_request(&mut self, msg: &Message) -> Message {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
-                let mut routes = self.routes.lock().unwrap();
+                let routes = self.routes.lock().unwrap();
                 Message {
                     src: routes.node.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply),
                 }
             }
+            Payload::Request(Request::StoreRequest(k, v)) => {
+            }
             Payload::Request(Request::FindNodeRequest(id)) => {
-                let mut routes = self.routes.lock().unwrap();
+                let routes = self.routes.lock().unwrap();
                 Message {
                     src: routes.node.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, 3))),
                 }
             }
+            Payload::Request(Request::FindValueRequest(k)) => {
+            }
             _ => {
-                let mut routes = self.routes.lock().unwrap();
-                Message {
-                    src: routes.node.clone(),
-                    token: Key::random(),
-                    payload: Payload::Reply(Reply::PingReply),
-                }
+                panic!("Handle request was given something that's not a request");
             }
         }
     }
@@ -123,21 +117,6 @@ struct RpcEndpoint {
 }
 
 impl RpcEndpoint {
-    fn ping(&mut self, socket: &mut UdpSocket, node: NodeInfo) -> Result<(), &'static str> {
-        Err("not implemented")
-    }
-
-    fn store(&mut self, socket: &mut UdpSocket, key: Key, val: &str) -> Result<(), &'static str> {
-        Err("not implemented")
-    }
-
-    fn find_nodes(&mut self, socket: &mut UdpSocket, key: Key) -> Result<Vec<NodeInfo>, &'static str> {
-        Err("not implemented")
-    }
-
-    fn find_val(&mut self, socket: &mut UdpSocket, key: Key) -> Result<String, &'static str> {
-        Err("not implemented")
-    }
 }
 
 impl Clone for RpcEndpoint {
@@ -312,14 +291,14 @@ pub enum Payload {
 #[derive(Debug,RustcEncodable, RustcDecodable)]
 pub enum Request {
     PingRequest,
-    StoreRequest,
+    StoreRequest(String, String),
     FindNodeRequest(Key),
-    FindValueRequest,
+    FindValueRequest(String),
 }
 
 #[derive(Debug,RustcEncodable, RustcDecodable)]
 pub enum Reply {
     PingReply,
     FindNodeReply(Vec<NodeInfo>),
-    FindValueReply,
+    FindValueReply(String),
 }
