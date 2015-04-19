@@ -8,8 +8,8 @@ use std::fmt::{Error, Debug, Formatter};
 use std::net::UdpSocket;
 use std::thread;
 
-const KEY_LEN: usize = 20;
-const N_BUCKETS: usize = KEY_LEN * 8;
+const K: usize = 20;
+const N_BUCKETS: usize = K * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
@@ -209,13 +209,13 @@ pub struct NodeInfo {
 }
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-pub struct Key([u8; KEY_LEN]);
+pub struct Key([u8; K]);
 
 impl Key {
-    /// Returns a random, KEY_LEN long byte string.
+    /// Returns a random, K long byte string.
     pub fn random() -> Key {
-        let mut res = [0; KEY_LEN];
-        for i in 0us..KEY_LEN {
+        let mut res = [0; K];
+        for i in 0us..K {
             res[i] = rand::random::<u8>();
         }
         Key(res)
@@ -234,11 +234,11 @@ impl Debug for Key {
 impl Decodable for Key {
     fn decode<D: Decoder>(d: &mut D) -> Result<Key, D::Error> {
         d.read_seq(|d, len| {
-            if len != KEY_LEN {
+            if len != K {
                 return Err(d.error("Wrong length key!"));
             }
-            let mut ret = [0; KEY_LEN];
-            for i in 0..KEY_LEN {
+            let mut ret = [0; K];
+            for i in 0..K {
                 ret[i] = try!(d.read_seq_elt(i, Decodable::decode));
             }
             Ok(Key(ret))
@@ -248,8 +248,8 @@ impl Decodable for Key {
 
 impl Encodable for Key {
     fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        s.emit_seq(KEY_LEN, |s| {
-            for i in 0..KEY_LEN {
+        s.emit_seq(K, |s| {
+            for i in 0..K {
                 try!(s.emit_seq_elt(i, |s| self.0[i].encode(s)));
             }
             Ok(())
@@ -258,27 +258,27 @@ impl Encodable for Key {
 }
 
 #[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-struct Distance([u8; KEY_LEN]);
+struct Distance([u8; K]);
 
 impl Distance {
     /// XORs two Keys
     fn dist(x: Key, y: Key) -> Distance{
-        let mut res = [0; KEY_LEN];
-        for i in 0us..KEY_LEN {
+        let mut res = [0; K];
+        for i in 0us..K {
             res[i] = x.0[i] ^ y.0[i];
         }
         Distance(res)
     }
 
     fn zeroes_in_prefix(&self) -> usize {
-        for i in 0..KEY_LEN {
+        for i in 0..K {
             for j in 8us..0 {
                 if (self.0[i] >> (7 - j)) & 0x1 != 0 {
                     return i * 8 + j;
                 }
             }
         }
-        KEY_LEN * 8 - 1
+        K * 8 - 1
     }
 }
 
