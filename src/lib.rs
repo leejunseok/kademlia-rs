@@ -94,19 +94,19 @@ impl DHTEndpoint {
         }
     }
 
-    fn ping(&mut self, node: NodeInfo) -> Result<(), &'static str> {
+    fn ping(&mut self, socket: &mut UdpSocket, node: NodeInfo) -> Result<(), &'static str> {
         Err("not implemented")
     }
 
-    fn store(&mut self, key: Key, val: String) -> Result<(), &'static str> {
+    fn store(&mut self, socket: &mut UdpSocket, key: Key, val: String) -> Result<(), &'static str> {
         Err("not implemented")
     }
 
-    fn find_nodes(&mut self, key: Key) -> Result<Vec<NodeInfo>, &'static str> {
+    fn find_nodes(&mut self, socket: &mut UdpSocket, key: Key) -> Result<Vec<NodeInfo>, &'static str> {
         Err("not implemented")
     }
 
-    fn find_val(&mut self, key: Key) -> Result<String, &'static str> {
+    fn find_val(&mut self, socket: &mut UdpSocket, key: Key) -> Result<String, &'static str> {
         Err("not implemented")
     }
 }
