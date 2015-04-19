@@ -3,47 +3,66 @@ extern crate rustc_serialize;
 
 use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
 
+use std::sync::{Arc, Mutex};
 use std::fmt::{Error, Debug, Formatter};
 use std::net::UdpSocket;
+use std::thread;
 
 const KEY_LEN: usize = 20;
 const N_BUCKETS: usize = KEY_LEN * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
+#[derive(Clone)]
 pub struct DHTEndpoint {
-    routes: RoutingTable,
+    routes: Arc<Mutex<RoutingTable>>,
     pub net_id: String,
+    rpc: RpcEndpoint,
 }
 
 impl DHTEndpoint {
-    pub fn start(net_id: String, node_id: Key, node_addr: String, bootstrap: String) {
-        let mut dht = DHTEndpoint {
-            routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
-            net_id: net_id,
+    pub fn new(net_id: String, node_id: Key, mut node_addr: String) -> DHTEndpoint {
+        let mut socket = UdpSocket::bind(&node_addr[..]).unwrap();
+        let node_info = NodeInfo {
+            id: node_id,
+            addr: socket.local_addr().unwrap().to_string(),
         };
-        let mut socket = UdpSocket::bind(&dht.routes.node.addr[..]).unwrap();
-        let actual_addr = socket.local_addr().unwrap().to_string();
-        if actual_addr != dht.routes.node.addr {
-            dht.routes.node.addr = actual_addr;
-            println!("DHTEndpoint's node address was updated to {:?}", dht.routes.node.addr);
-        }
-        let mut buf = [0u8; MESSAGE_LEN];
-        loop {
-            let (len, src) = socket.recv_from(&mut buf).unwrap();
-            let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
-            let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
-            match msg.payload {
-                Payload::Request(_) => { dht.handle_request(&mut socket, &msg) }
-                Payload::Reply(_) => {
-                    // Lookup token in map of expected replies
-                    // if not found, ignore and print error
-                    dht.handle_reply(&mut socket, &msg)
-                }
-            }
+        let routes = RoutingTable::new(node_info);
+        println!("New node created at {:?} with ID {:?}", &routes.node.addr, &routes.node.id);
+
+        DHTEndpoint {
+            routes: Arc::new(Mutex::new(routes)),
+            net_id: net_id,
+            rpc: RpcEndpoint { socket: socket },
         }
     }
 
+    pub fn start(&mut self, bootstrap: String) {
+        let mut buf = [0u8; MESSAGE_LEN];
+        loop {
+            let (len, src) = self.rpc.socket.recv_from(&mut buf).unwrap();
+            let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
+            let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
+
+            println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
+
+            let mut cloned_dht = self.clone();
+            let mut cloned_socket = self.rpc.socket.try_clone().unwrap();
+            thread::spawn(move || {
+                match msg.payload {
+                    Payload::Request(_) => {
+                        let reply = cloned_dht.handle_request(&msg);
+                        let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
+                        let sent_len = cloned_socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                        println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
+                    }
+                    Payload::Reply(_) => {
+                        cloned_dht.handle_reply(&msg)
+                    }
+                }
+            });
+        }
+    }
 
     pub fn get(&mut self, key: String) -> Result<String, &'static str> {
         Err("not implemented")
@@ -53,46 +72,72 @@ impl DHTEndpoint {
         Err("not implemented")
     }
 
-    fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_request(&mut self, msg: &Message) -> Message {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
-                let reply = Message {
-                    src: self.routes.node.clone(),
+                let mut routes = self.routes.lock().unwrap();
+                Message {
+                    src: routes.node.clone(),
                     token: msg.token,
-                    payload: Payload::Reply(Reply::PingReply)
-                };
-                let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
-                println!("{}", encoded_reply);
-                let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                    payload: Payload::Reply(Reply::PingReply),
+                }
             }
-            _ => { }
+            Payload::Request(Request::FindNodeRequest(id)) => {
+                let mut routes = self.routes.lock().unwrap();
+                Message {
+                    src: routes.node.clone(),
+                    token: msg.token,
+                    payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, 3))),
+                }
+            }
+            _ => {
+                let mut routes = self.routes.lock().unwrap();
+                Message {
+                    src: routes.node.clone(),
+                    token: Key::random(),
+                    payload: Payload::Reply(Reply::PingReply),
+                }
+            }
         }
     }
 
-    fn handle_reply(&mut self, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_reply(&mut self, msg: &Message) {
         match msg.payload {
             Payload::Reply(Reply::PingReply) => {
-                self.routes.update(msg.src.clone());
+                let mut routes = self.routes.lock().unwrap();
+                routes.update(msg.src.clone());
                 println!("Routing table updated");
             }
             _ => { }
         }
     }
+}
 
-    fn ping(&mut self, node: NodeInfo) -> Result<(), &'static str> {
+struct RpcEndpoint {
+    socket: UdpSocket,
+}
+
+impl RpcEndpoint {
+    fn ping(&mut self, socket: &mut UdpSocket, node: NodeInfo) -> Result<(), &'static str> {
         Err("not implemented")
     }
 
-    fn store(&mut self, key: Key, val: String) -> Result<(), &'static str> {
+    fn store(&mut self, socket: &mut UdpSocket, key: Key, val: String) -> Result<(), &'static str> {
         Err("not implemented")
     }
 
-    fn find_nodes(&mut self, key: Key) -> Result<Vec<NodeInfo>, &'static str> {
+    fn find_nodes(&mut self, socket: &mut UdpSocket, key: Key) -> Result<Vec<NodeInfo>, &'static str> {
         Err("not implemented")
     }
 
-    fn find_val(&mut self, key: Key) -> Result<String, &'static str> {
+    fn find_val(&mut self, socket: &mut UdpSocket, key: Key) -> Result<String, &'static str> {
         Err("not implemented")
+    }
+}
+
+impl Clone for RpcEndpoint {
+    fn clone(&self) -> RpcEndpoint {
+        RpcEndpoint { socket: self.socket.try_clone().unwrap() }
     }
 }
 
@@ -107,7 +152,9 @@ impl RoutingTable {
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
         }
-        RoutingTable { node: node, buckets: buckets }
+        let mut ret = RoutingTable { node: node.clone(), buckets: buckets };
+        ret.update(node);
+        ret
     }
 
     /// Update the appropriate bucket with the new node's info
@@ -135,7 +182,7 @@ impl RoutingTable {
     ///
     /// NOTE: This method is a really stupid, linear time search. I can't find
     /// info on how to use the buckets effectively to solve this.
-    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo, Distance)> {
+    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<NodeInfo> {
         if count == 0 {
             return Vec::new();
         }
@@ -147,7 +194,7 @@ impl RoutingTable {
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
         ret.truncate(count);
-        ret
+        ret.into_iter().map(|p| p.0).collect()
     }
 
     fn lookup_bucket_index(&self, item: Key) -> usize {
@@ -261,13 +308,13 @@ pub enum Payload {
 pub enum Request {
     PingRequest,
     StoreRequest,
-    FindNodeRequest,
+    FindNodeRequest(Key),
     FindValueRequest,
 }
 
 #[derive(Debug,RustcEncodable, RustcDecodable)]
 pub enum Reply {
     PingReply,
-    FindNodeReply,
+    FindNodeReply(Vec<NodeInfo>),
     FindValueReply,
 }
