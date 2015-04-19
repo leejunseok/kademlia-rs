@@ -51,16 +51,18 @@ impl DHTEndpoint {
             thread::spawn(move || {
                 match msg.payload {
                     Payload::Request(_) => {
-                        cloned_dht.handle_request(&mut cloned_socket, &msg)
+                        let reply = cloned_dht.handle_request(&msg);
+                        let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
+                        let sent_len = cloned_socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                        println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
                     }
                     Payload::Reply(_) => {
-                        cloned_dht.handle_reply(&mut cloned_socket, &msg)
+                        cloned_dht.handle_reply(&msg)
                     }
                 }
             });
         }
     }
-
 
     pub fn get(&mut self, key: String) -> Result<String, &'static str> {
         Err("not implemented")
@@ -70,31 +72,33 @@ impl DHTEndpoint {
         Err("not implemented")
     }
 
-    fn handle_request(&mut self, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_request(&mut self, msg: &Message) -> Message {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
                 let mut routes = self.routes.lock().unwrap();
-                let reply = Message {
+                Message {
                     src: routes.node.clone(),
                     token: msg.token,
-                    payload: Payload::Reply(Reply::PingReply)
-                };
-                drop(routes);
-                let encoded_reply = rustc_serialize::json::encode(&reply).unwrap();
-                let sent_len = socket.send_to(&encoded_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
+                    payload: Payload::Reply(Reply::PingReply),
+                }
             }
-            _ => { }
+            _ => {
+                let mut routes = self.routes.lock().unwrap();
+                Message {
+                    src: routes.node.clone(),
+                    token: Key::random(),
+                    payload: Payload::Reply(Reply::PingReply),
+                }
+            }
         }
     }
 
-    fn handle_reply(&mut self, socket: &mut UdpSocket, msg: &Message) {
+    fn handle_reply(&mut self, msg: &Message) {
         match msg.payload {
             Payload::Reply(Reply::PingReply) => {
                 let mut routes = self.routes.lock().unwrap();
                 routes.update(msg.src.clone());
                 println!("Routing table updated");
-                drop(routes);
             }
             _ => { }
         }
