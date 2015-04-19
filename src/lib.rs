@@ -18,15 +18,15 @@ pub struct DHTEndpoint {
 
 impl DHTEndpoint {
     pub fn start(net_id: String, node_id: Key, node_addr: String, bootstrap: String) {
-        let mut endpoint = DHTEndpoint {
+        let mut dht = DHTEndpoint {
             routes: RoutingTable::new( NodeInfo { id: node_id, addr: node_addr } ),
             net_id: net_id,
         };
-        let mut socket = UdpSocket::bind(&endpoint.routes.node.addr[..]).unwrap();
+        let mut socket = UdpSocket::bind(&dht.routes.node.addr[..]).unwrap();
         let actual_addr = socket.local_addr().unwrap().to_string();
-        if actual_addr != endpoint.routes.node.addr {
-            endpoint.routes.node.addr = actual_addr;
-            println!("DHTEndpoint's node address was updated to {:?}", endpoint.routes.node.addr);
+        if actual_addr != dht.routes.node.addr {
+            dht.routes.node.addr = actual_addr;
+            println!("DHTEndpoint's node address was updated to {:?}", dht.routes.node.addr);
         }
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
@@ -34,8 +34,12 @@ impl DHTEndpoint {
             let buf_str = std::str::from_utf8(&buf[..len]).unwrap();
             let msg: Message = rustc_serialize::json::decode(&buf_str).unwrap();
             match msg.payload {
-                Payload::Request(_) => { endpoint.handle_request(&mut socket, &msg) }
-                Payload::Reply(_) => { endpoint.handle_reply(&mut socket, &msg) }
+                Payload::Request(_) => { dht.handle_request(&mut socket, &msg) }
+                Payload::Reply(_) => {
+                    // Lookup token in map of expected replies
+                    // if not found, ignore and print error
+                    dht.handle_reply(&mut socket, &msg)
+                }
             }
         }
     }
