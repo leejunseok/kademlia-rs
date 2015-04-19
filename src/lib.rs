@@ -21,8 +21,8 @@ pub struct DHTEndpoint {
 }
 
 impl DHTEndpoint {
-    pub fn new(net_id: String, node_id: Key, mut node_addr: String) -> DHTEndpoint {
-        let mut socket = UdpSocket::bind(&node_addr[..]).unwrap();
+    pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> DHTEndpoint {
+        let mut socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
             addr: socket.local_addr().unwrap().to_string(),
@@ -32,12 +32,12 @@ impl DHTEndpoint {
 
         DHTEndpoint {
             routes: Arc::new(Mutex::new(routes)),
-            net_id: net_id,
+            net_id: String::from(net_id),
             rpc: RpcEndpoint { socket: socket },
         }
     }
 
-    pub fn start(&mut self, bootstrap: String) {
+    pub fn start(&mut self, bootstrap: &str) {
         let mut buf = [0u8; MESSAGE_LEN];
         loop {
             let (len, src) = self.rpc.socket.recv_from(&mut buf).unwrap();
@@ -64,11 +64,11 @@ impl DHTEndpoint {
         }
     }
 
-    pub fn get(&mut self, key: String) -> Result<String, &'static str> {
+    pub fn get(&mut self, key: &str) -> Result<String, &'static str> {
         Err("not implemented")
     }
 
-    pub fn put(&mut self, key: String, val: String) -> Result<(), &'static str> {
+    pub fn put(&mut self, key: &str, val: &str) -> Result<(), &'static str> {
         Err("not implemented")
     }
 
@@ -122,7 +122,7 @@ impl RpcEndpoint {
         Err("not implemented")
     }
 
-    fn store(&mut self, socket: &mut UdpSocket, key: Key, val: String) -> Result<(), &'static str> {
+    fn store(&mut self, socket: &mut UdpSocket, key: Key, val: &str) -> Result<(), &'static str> {
         Err("not implemented")
     }
 
