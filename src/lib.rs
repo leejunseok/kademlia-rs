@@ -29,7 +29,7 @@ impl DhtHandle {
             id: node_id,
             addr: socket.local_addr().unwrap().to_string(),
         };
-        let routes = RoutingTable::new(node_info);
+        let routes = RoutingTable::new(&node_info);
         println!("New node created at {:?} with ID {:?}",
                  &routes.node_info.addr,
                  &routes.node_info.id);
@@ -79,7 +79,7 @@ impl DhtHandle {
         match msg.payload {
             Payload::Reply(Reply::PingReply) => {
                 let mut routes = self.routes.lock().unwrap();
-                routes.update(msg.src.clone());
+                routes.update(&msg.src);
                 println!("Routing table updated");
             }
             _ => { }
@@ -141,18 +141,21 @@ struct RoutingTable {
 }
 
 impl RoutingTable {
-    fn new(node_info: NodeInfo) -> RoutingTable {
+    fn new(node_info: &NodeInfo) -> RoutingTable {
         let mut buckets = Vec::new();
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
         }
-        let mut ret = RoutingTable { node_info: node_info.clone(), buckets: buckets };
-        ret.update(node_info);
+        ret.update(&node_info);
+        let mut ret = RoutingTable {
+            node_info: node_info.clone(),
+            buckets: buckets
+        };
         ret
     }
 
     /// Update the appropriate bucket with the new node's info
-    fn update(&mut self, node_info: NodeInfo) {
+    fn update(&mut self, node_info: &NodeInfo) {
         let bucket_index = self.lookup_bucket_index(node_info.id);
         let bucket = &mut self.buckets[bucket_index];
         let node_index = bucket.iter().position(|x| x.id == node_info.id);
@@ -163,7 +166,7 @@ impl RoutingTable {
             }
             None => {
                 if bucket.len() < BUCKET_SIZE {
-                    bucket.push(node_info);
+                    bucket.push(node_info.clone());
                 } else {
                     // go through bucket, pinging nodes, replace one
                     // that doesn't respond.
