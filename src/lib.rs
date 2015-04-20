@@ -18,26 +18,20 @@ const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
 /// A handle on the Kademlia node
-pub struct Handle(Arc<Kademlia>);
-
-impl Handle {
-    pub fn start(&self, bootstrap: &str) {
-        let Handle(ref node) = *self;
-        let (tx, rx) = mpsc::channel();
-        RpcEndpoint::start_msg_channel(node.clone(), tx);
-        Kademlia::start_rpc_handler(node.clone(), rx);
-    }
+pub struct Handle {
+    node: Kademlia,
+    rpc: Arc<RpcService>,
 }
 
+#[derive(Clone)]
 pub struct Kademlia {
-    routes: Mutex<RoutingTable>,
+    routes: Arc<Mutex<RoutingTable>>,
     pub net_id: String,
-    rpc: RpcEndpoint,
 }
 
 /// A Kademlia node
 impl Kademlia {
-    pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> Handle {
+    pub fn start(net_id: &str, node_id: Key, node_addr: &str, bootstrap: &str) -> Handle {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
@@ -48,27 +42,17 @@ impl Kademlia {
                  &routes.node_info.addr,
                  &routes.node_info.id);
 
-        Handle(Arc::new(Kademlia {
-            routes: Mutex::new(routes),
+        let node = Kademlia {
+            routes: Arc::new(Mutex::new(routes)),
             net_id: String::from(net_id),
-            rpc: RpcEndpoint { socket: socket },
-        }))
-    }
+        };
 
-    fn start_rpc_handler(node: Arc<Kademlia>, rx: Receiver<Message>) {
-        thread::spawn(move || {
-            for msg in rx.iter() {
-                let node = node.clone();
-                thread::spawn(move || {
-                    let reply = node.handle_request(&msg);
-                    let enc_reply = json::encode(&reply).unwrap();
-                    node.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                    println!("| OUT | {:?} ==> {:?} ",
-                             reply.payload,
-                             reply.src.id);
-                });
-            }
-        });
+        let rpc = RpcService::open_channel(node.clone(), socket);
+
+        Handle {
+            node: node,
+            rpc: rpc,
+        }
     }
 
     fn handle_request(&self, msg: &Message) -> Message {
@@ -89,7 +73,7 @@ impl Kademlia {
                 Message {
                     src: routes.node_info.clone(),
                     token: msg.token,
-                    payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, 3))),
+                    payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K))),
                 }
             }
             Payload::Request(Request::FindValueRequest(ref k)) => {
@@ -102,15 +86,16 @@ impl Kademlia {
     }
 }
 
-struct RpcEndpoint {
+struct RpcService {
     socket: UdpSocket,
 }
 
-impl RpcEndpoint {
-    fn start_msg_channel(node: Arc<Kademlia>, tx: Sender<Message>) {
+impl RpcService {
+    fn open_channel(node: Kademlia, socket: UdpSocket) -> Arc<RpcService> {
+        let rpc = Arc::new(RpcService { socket: socket });
+        let ret = rpc.clone();
         thread::spawn(move || {
             let mut buf = [0u8; MESSAGE_LEN];
-            let rpc = &node.clone().rpc;
             loop {
                 // NOTE: We currently just trust the src in the message, and ignore where
                 // it actually came from
@@ -122,11 +107,19 @@ impl RpcEndpoint {
 
                 match msg.payload {
                     Payload::Kill => {
-                        tx.send(msg).unwrap();
                         break;
                     }
                     Payload::Request(_) => {
-                        tx.send(msg).unwrap();
+                        let rpc = rpc.clone();
+                        let node = node.clone();
+                        thread::spawn(move || {
+                            let reply = node.handle_request(&msg);
+                            let enc_reply = json::encode(&reply).unwrap();
+                            rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                            println!("| OUT | {:?} ==> {:?} ",
+                                     reply.payload,
+                                     reply.src.id);
+                        });
                     }
                     Payload::Reply(_) => {
                         continue;
@@ -134,12 +127,7 @@ impl RpcEndpoint {
                 }
             }
         });
-    }
-}
-
-impl Clone for RpcEndpoint {
-    fn clone(&self) -> RpcEndpoint {
-        RpcEndpoint { socket: self.socket.try_clone().unwrap() }
+        ret
     }
 }
 
