@@ -20,10 +20,11 @@ const MESSAGE_LEN: usize = 8196;
 pub struct DhtHandle(Arc<DhtNode>);
 
 impl DhtHandle {
-    pub fn start(DhtHandle(arc): DhtHandle, bootstrap: &str) {
+    pub fn start(&self, bootstrap: &str) {
+        let DhtHandle(ref node) = *self;
         let (tx, rx) = mpsc::channel();
-        RpcEndpoint::start(arc.clone(), tx);
-        DhtNode::start(arc.clone(), rx);
+        RpcEndpoint::start(node.clone(), tx);
+        DhtNode::start(node.clone(), rx);
     }
 }
 
@@ -53,19 +54,19 @@ impl DhtNode {
     }
 
     pub fn start(node: Arc<DhtNode>, rx: Receiver<Message>) {
-        loop {
-            let node = node.clone();
-            let msg = rx.recv().unwrap();
-            thread::spawn(move || {
+        thread::spawn(move || {
+            for msg in rx.iter() {
                 let node = node.clone();
-                let reply = node.handle_request(&msg);
-                let enc_reply = json::encode(&reply).unwrap();
-                node.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                println!("| OUT | {:?} ==> {:?} ",
-                         reply.payload,
-                         reply.src.id);
-            });
-        }
+                thread::spawn(move || {
+                    let reply = node.handle_request(&msg);
+                    let enc_reply = json::encode(&reply).unwrap();
+                    node.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                    println!("| OUT | {:?} ==> {:?} ",
+                             reply.payload,
+                             reply.src.id);
+                });
+            }
+        });
     }
 
     fn handle_request(&self, msg: &Message) -> Message {
