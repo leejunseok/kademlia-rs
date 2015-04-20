@@ -17,11 +17,12 @@ const K: usize = 20;
 const N_BUCKETS: usize = K * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
+const TIMEOUT: u32 = 5000;
 
 /// A handle on the Kademlia node
 pub struct Handle {
     node: Kademlia,
-    rpc: Arc<Rpc>,
+    rpc: Rpc,
 }
 
 #[derive(Clone)]
@@ -49,6 +50,14 @@ impl Kademlia {
         };
 
         let rpc = Rpc::open_channel(node.clone(), socket);
+
+        let routes = node.routes.clone();
+        let routes = routes.lock().unwrap();
+        let dst = NodeInfo { id: Key([0; K]), addr: String::from("127.0.0.1:50001") };
+        let ping_result = rpc.ping(&routes.node_info, &dst);
+        drop(routes);
+
+        println!("{:?}", ping_result.recv());
 
         Handle {
             node: node,
@@ -87,17 +96,18 @@ impl Kademlia {
     }
 }
 
+#[derive(Clone)]
 struct Rpc {
-    socket: UdpSocket,
-    pending: Mutex<HashMap<Key,Sender<Message>>>,
+    socket: Arc<UdpSocket>,
+    pending: Arc<Mutex<HashMap<Key,Sender<Option<Message>>>>>,
 }
 
 impl Rpc {
-    fn open_channel(node: Kademlia, socket: UdpSocket) -> Arc<Rpc> {
-        let rpc = Arc::new(Rpc {
-            socket: socket,
-            pending: Mutex::new(HashMap::new()),
-        });
+    fn open_channel(node: Kademlia, socket: UdpSocket) -> Rpc {
+        let rpc = Rpc {
+            socket: Arc::new(socket),
+            pending: Arc::new(Mutex::new(HashMap::new())),
+        };
         let ret = rpc.clone();
         thread::spawn(move || {
             let mut buf = [0u8; MESSAGE_LEN];
@@ -119,19 +129,24 @@ impl Rpc {
                         let node = node.clone();
                         thread::spawn(move || {
                             let reply = node.handle_request(&msg);
-                            let enc_reply = json::encode(&reply).unwrap();
-                            rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                            println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
+                            rpc.send_message(&reply, &msg.src.addr);
                         });
                     }
                     Payload::Reply(_) => {
                         let rpc = rpc.clone();
                         thread::spawn(move || {
-                            let pending = rpc.pending.lock().unwrap();
-                            if let Some(tx) = pending.get(&msg.token) {
-                                tx.send(msg).unwrap();
-                            } else {
-                                println!("Unsolicited reply received, ignoring.");
+                            let mut pending = rpc.pending.lock().unwrap();
+                            let send_res = match pending.get(&msg.token) {
+                                Some(tx) => {
+                                    tx.send(Some(msg.clone()))
+                                }
+                                None => {
+                                    println!("Unsolicited reply received, ignoring.");
+                                    return;
+                                }
+                            };
+                            if let Ok(_) = send_res {
+                                pending.remove(&msg.token);
                             }
                         });
                     }
@@ -139,6 +154,40 @@ impl Rpc {
             }
         });
         ret
+    }
+
+    fn send_message(&self, msg: &Message, addr: &str) {
+        let enc_reply = json::encode(msg).unwrap();
+        self.socket.send_to(&enc_reply.as_bytes(), addr).unwrap();
+        println!("{:?}", enc_reply);
+        println!("| OUT | {:?} ==> {:?} ", msg.payload, addr);
+    }
+
+    fn ping(&self, src_info: &NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+        let mut pending = self.pending.lock().unwrap();
+        let mut token = Key::random();
+        while pending.contains_key(&token) {
+            token = Key::random();
+        }
+        let (tx, rx) = mpsc::channel();
+        let msg = Message { 
+            src: src_info.clone(),
+            token: token,
+            payload: Payload::Request(Request::PingRequest),
+        };
+        self.send_message(&msg, &dst_info.addr);
+        pending.insert(token, tx.clone());
+        drop(pending);
+        let clone = self.clone();
+        thread::spawn(move || {
+            thread::sleep_ms(TIMEOUT);
+            if let Ok(_) = tx.send(None) {
+                let mut pending = clone.pending.lock().unwrap();
+                pending.remove(&token);
+            }
+            println!("timeout :(");
+        });
+        rx
     }
 }
 
@@ -295,21 +344,21 @@ impl Debug for Distance {
     }
 }
 
-#[derive(Debug,RustcEncodable, RustcDecodable)]
+#[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
 pub struct Message {
     pub src: NodeInfo,
     pub token: Key,
     pub payload: Payload,
 }
 
-#[derive(Debug,RustcEncodable, RustcDecodable)]
+#[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
 pub enum Payload {
     Kill,
     Request(Request),
     Reply(Reply),
 }
 
-#[derive(Debug,RustcEncodable, RustcDecodable)]
+#[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
 pub enum Request {
     PingRequest,
     StoreRequest(String, String),
@@ -317,7 +366,7 @@ pub enum Request {
     FindValueRequest(String),
 }
 
-#[derive(Debug,RustcEncodable, RustcDecodable)]
+#[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
 pub enum Reply {
     PingReply,
     FindNodeReply(Vec<NodeInfo>),
