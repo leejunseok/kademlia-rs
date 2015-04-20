@@ -5,6 +5,7 @@ use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
 use rustc_serialize::json;
 
 use std::str;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -20,7 +21,7 @@ const MESSAGE_LEN: usize = 8196;
 /// A handle on the Kademlia node
 pub struct Handle {
     node: Kademlia,
-    rpc: Arc<RpcService>,
+    rpc: Arc<Rpc>,
 }
 
 #[derive(Clone)]
@@ -47,7 +48,7 @@ impl Kademlia {
             net_id: String::from(net_id),
         };
 
-        let rpc = RpcService::open_channel(node.clone(), socket);
+        let rpc = Rpc::open_channel(node.clone(), socket);
 
         Handle {
             node: node,
@@ -86,13 +87,17 @@ impl Kademlia {
     }
 }
 
-struct RpcService {
+struct Rpc {
     socket: UdpSocket,
+    pending: Mutex<HashMap<Key,Sender<Message>>>,
 }
 
-impl RpcService {
-    fn open_channel(node: Kademlia, socket: UdpSocket) -> Arc<RpcService> {
-        let rpc = Arc::new(RpcService { socket: socket });
+impl Rpc {
+    fn open_channel(node: Kademlia, socket: UdpSocket) -> Arc<Rpc> {
+        let rpc = Arc::new(Rpc {
+            socket: socket,
+            pending: Mutex::new(HashMap::new()),
+        });
         let ret = rpc.clone();
         thread::spawn(move || {
             let mut buf = [0u8; MESSAGE_LEN];
@@ -116,13 +121,19 @@ impl RpcService {
                             let reply = node.handle_request(&msg);
                             let enc_reply = json::encode(&reply).unwrap();
                             rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                            println!("| OUT | {:?} ==> {:?} ",
-                                     reply.payload,
-                                     reply.src.id);
+                            println!("| OUT | {:?} ==> {:?} ", reply.payload, reply.src.id);
                         });
                     }
                     Payload::Reply(_) => {
-                        continue;
+                        let rpc = rpc.clone();
+                        thread::spawn(move || {
+                            let pending = rpc.pending.lock().unwrap();
+                            if let Some(tx) = pending.get(&msg.token) {
+                                tx.send(msg).unwrap();
+                            } else {
+                                println!("Unsolicited reply received, ignoring.");
+                            }
+                        });
                     }
                 }
             }
@@ -201,7 +212,7 @@ pub struct NodeInfo {
     pub addr: String,
 }
 
-#[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
+#[derive(Hash,Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
 pub struct Key([u8; K]);
 
 impl Key {
