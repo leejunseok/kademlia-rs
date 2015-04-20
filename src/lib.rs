@@ -6,6 +6,8 @@ use rustc_serialize::json;
 
 use std::str;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::fmt::{Error, Debug, Formatter};
 use std::net::UdpSocket;
 use std::thread;
@@ -15,14 +17,23 @@ const N_BUCKETS: usize = K * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
-#[derive(Clone)]
-pub struct DhtHandle {
-    routes: Arc<Mutex<RoutingTable>>,
-    pub net_id: String,
-    rpc: Arc<RpcEndpoint>,
-}
+pub struct DhtHandle(Arc<DhtNode>);
 
 impl DhtHandle {
+    pub fn start(DhtHandle(arc): DhtHandle, bootstrap: &str) {
+        let (tx, rx) = mpsc::channel();
+        RpcEndpoint::start(arc.clone(), tx);
+        DhtNode::start(arc.clone(), rx);
+    }
+}
+
+pub struct DhtNode {
+    routes: Mutex<RoutingTable>,
+    pub net_id: String,
+    rpc: RpcEndpoint,
+}
+
+impl DhtNode {
     pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> DhtHandle {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
@@ -34,18 +45,30 @@ impl DhtHandle {
                  &routes.node_info.addr,
                  &routes.node_info.id);
 
-        DhtHandle {
-            routes: Arc::new(Mutex::new(routes)),
+        DhtHandle(Arc::new(DhtNode {
+            routes: Mutex::new(routes),
             net_id: String::from(net_id),
-            rpc: Arc::new(RpcEndpoint { socket: socket }),
+            rpc: RpcEndpoint { socket: socket },
+        }))
+    }
+
+    pub fn start(node: Arc<DhtNode>, rx: Receiver<Message>) {
+        loop {
+            let node = node.clone();
+            let msg = rx.recv().unwrap();
+            thread::spawn(move || {
+                let node = node.clone();
+                let reply = node.handle_request(&msg);
+                let enc_reply = json::encode(&reply).unwrap();
+                node.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
+                println!("| OUT | {:?} ==> {:?} ",
+                         reply.payload,
+                         reply.src.id);
+            });
         }
     }
 
-    pub fn start(&mut self, bootstrap: &str) {
-        self.rpc.start_server(&*self);
-    }
-
-    fn handle_request(&mut self, msg: &Message) -> Message {
+    fn handle_request(&self, msg: &Message) -> Message {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
                 let routes = self.routes.lock().unwrap();
@@ -74,17 +97,6 @@ impl DhtHandle {
             }
         }
     }
-
-    fn handle_reply(&mut self, msg: &Message) {
-        match msg.payload {
-            Payload::Reply(Reply::PingReply) => {
-                let mut routes = self.routes.lock().unwrap();
-                routes.update(&msg.src);
-                println!("Routing table updated");
-            }
-            _ => { }
-        }
-    }
 }
 
 struct RpcEndpoint {
@@ -92,40 +104,33 @@ struct RpcEndpoint {
 }
 
 impl RpcEndpoint {
-    fn start_server(&self, dht: &DhtHandle) {
-        let dht = dht.clone();
+    fn start(node: Arc<DhtNode>, tx: Sender<Message>) {
         let mut buf = [0u8; MESSAGE_LEN];
-        loop {
-            // NOTE: We currently just trust the src in the message, and ignore where
-            // it actually came from
-            let (len, _) = self.socket.recv_from(&mut buf).unwrap();
-            let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
-            let msg: Message = json::decode(&buf_str).unwrap();
+        thread::spawn(move || {
+            let rpc = &node.clone().rpc;
+            loop {
+                // NOTE: We currently just trust the src in the message, and ignore where
+                // it actually came from
+                let (len, _) = rpc.socket.recv_from(&mut buf).unwrap();
+                let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
+                let msg: Message = json::decode(&buf_str).unwrap();
 
-            println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
+                println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
-            let mut dht = dht.clone();
-            match msg.payload {
-                Payload::Kill => {
-                    break;
-                }
-                Payload::Request(_) => {
-                    thread::spawn(move || {
-                        let reply = dht.handle_request(&msg);
-                        let enc_reply = json::encode(&reply).unwrap();
-                        dht.rpc.socket.send_to(&enc_reply.as_bytes(), &msg.src.addr[..]).unwrap();
-                        println!("| OUT | {:?} ==> {:?} ",
-                                 reply.payload,
-                                 reply.src.id);
-                    });
-                }
-                Payload::Reply(_) => {
-                    thread::spawn(move || {
-                        dht.handle_reply(&msg)
-                    });
+                match msg.payload {
+                    Payload::Kill => {
+                        tx.send(msg).unwrap();
+                        break;
+                    }
+                    Payload::Request(_) => {
+                        tx.send(msg).unwrap();
+                    }
+                    Payload::Reply(_) => {
+                        continue;
+                    }
                 }
             }
-        }
+        });
     }
 }
 
@@ -146,11 +151,11 @@ impl RoutingTable {
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
         }
-        ret.update(&node_info);
         let mut ret = RoutingTable {
             node_info: node_info.clone(),
             buckets: buckets
         };
+        ret.update(&node_info);
         ret
     }
 

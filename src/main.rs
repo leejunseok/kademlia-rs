@@ -8,6 +8,7 @@ fn main() {
     let msg = Message { src: ni, token: Key::random(), payload: Payload::Request(Request::FindNodeRequest(Key::random()))};
     println!("{}", rustc_serialize::json::encode(&msg).unwrap());
     println!("{}", rustc_serialize::json::encode(&msg).unwrap().len());
-    let mut dht = DhtHandle::new("test_net", Key::random(), "127.0.0.1:0");
-    dht.start("127.0.0.1:0");
+    let mut handle = DhtNode::new("test_net", Key::random(), "127.0.0.1:0");
+    DhtHandle::start(handle, "127.0.0.1:0");
+    loop {}
 }
