@@ -17,14 +17,15 @@ const N_BUCKETS: usize = K * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
+/// A handle on the Kademlia node
 pub struct Handle(Arc<Kademlia>);
 
 impl Handle {
     pub fn start(&self, bootstrap: &str) {
         let Handle(ref node) = *self;
         let (tx, rx) = mpsc::channel();
-        RpcEndpoint::start(node.clone(), tx);
-        Kademlia::start(node.clone(), rx);
+        RpcEndpoint::start_msg_channel(node.clone(), tx);
+        Kademlia::start_rpc_handler(node.clone(), rx);
     }
 }
 
@@ -34,6 +35,7 @@ pub struct Kademlia {
     rpc: RpcEndpoint,
 }
 
+/// A Kademlia node
 impl Kademlia {
     pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> Handle {
         let socket = UdpSocket::bind(node_addr).unwrap();
@@ -53,7 +55,7 @@ impl Kademlia {
         }))
     }
 
-    pub fn start(node: Arc<Kademlia>, rx: Receiver<Message>) {
+    fn start_rpc_handler(node: Arc<Kademlia>, rx: Receiver<Message>) {
         thread::spawn(move || {
             for msg in rx.iter() {
                 let node = node.clone();
@@ -105,9 +107,9 @@ struct RpcEndpoint {
 }
 
 impl RpcEndpoint {
-    fn start(node: Arc<Kademlia>, tx: Sender<Message>) {
-        let mut buf = [0u8; MESSAGE_LEN];
+    fn start_msg_channel(node: Arc<Kademlia>, tx: Sender<Message>) {
         thread::spawn(move || {
+            let mut buf = [0u8; MESSAGE_LEN];
             let rpc = &node.clone().rpc;
             loop {
                 // NOTE: We currently just trust the src in the message, and ignore where
