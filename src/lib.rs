@@ -17,25 +17,25 @@ const N_BUCKETS: usize = K * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 
-pub struct DhtHandle(Arc<DhtNode>);
+pub struct Handle(Arc<Kademlia>);
 
-impl DhtHandle {
+impl Handle {
     pub fn start(&self, bootstrap: &str) {
-        let DhtHandle(ref node) = *self;
+        let Handle(ref node) = *self;
         let (tx, rx) = mpsc::channel();
         RpcEndpoint::start(node.clone(), tx);
-        DhtNode::start(node.clone(), rx);
+        Kademlia::start(node.clone(), rx);
     }
 }
 
-pub struct DhtNode {
+pub struct Kademlia {
     routes: Mutex<RoutingTable>,
     pub net_id: String,
     rpc: RpcEndpoint,
 }
 
-impl DhtNode {
-    pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> DhtHandle {
+impl Kademlia {
+    pub fn new(net_id: &str, node_id: Key, node_addr: &str) -> Handle {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
@@ -46,14 +46,14 @@ impl DhtNode {
                  &routes.node_info.addr,
                  &routes.node_info.id);
 
-        DhtHandle(Arc::new(DhtNode {
+        Handle(Arc::new(Kademlia {
             routes: Mutex::new(routes),
             net_id: String::from(net_id),
             rpc: RpcEndpoint { socket: socket },
         }))
     }
 
-    pub fn start(node: Arc<DhtNode>, rx: Receiver<Message>) {
+    pub fn start(node: Arc<Kademlia>, rx: Receiver<Message>) {
         thread::spawn(move || {
             for msg in rx.iter() {
                 let node = node.clone();
@@ -105,7 +105,7 @@ struct RpcEndpoint {
 }
 
 impl RpcEndpoint {
-    fn start(node: Arc<DhtNode>, tx: Sender<Message>) {
+    fn start(node: Arc<Kademlia>, tx: Sender<Message>) {
         let mut buf = [0u8; MESSAGE_LEN];
         thread::spawn(move || {
             let rpc = &node.clone().rpc;
