@@ -193,7 +193,16 @@ impl Rpc {
         self.send_request(Payload::Request(Request::PingRequest), &dst_info.addr)
     }
 
-    fn store(&self, dst_info: &NodeInfo) {
+    fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
+        self.send_request(Payload::Request(Request::StoreRequest(String::from(k), String::from(v))), &dst_info.addr)
+    }
+
+    fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
+        self.send_request(Payload::Request(Request::FindNodeRequest(id)), &dst_info.addr)
+    }
+
+    fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
+        self.send_request(Payload::Request(Request::FindValueRequest(String::from(k))), &dst_info.addr)
     }
 }
 
