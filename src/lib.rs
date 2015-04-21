@@ -36,7 +36,7 @@ impl Kademlia {
             addr: socket.local_addr().unwrap().to_string(),
             net_id: String::from(net_id),
         };
-        let routes = RoutingTable::new(&node_info);
+        let routes = RoutingTable::new(node_info.clone());
         println!("New node created at {:?} with ID {:?}", &node_info.addr, &node_info.id);
 
         let (tx, rx) = mpsc::channel();
@@ -45,7 +45,7 @@ impl Kademlia {
         let node = Kademlia {
             routes: Arc::new(Mutex::new(routes)),
             store: Arc::new(Mutex::new(HashMap::new())),
-            node_info: node_info.clone(),
+            node_info: node_info,
             rpc: Arc::new(rpc),
         };
 
@@ -54,35 +54,34 @@ impl Kademlia {
         node
     }
 
-    fn start_req_handler(&self, rx: Receiver<Message>) {
-        let node = self.clone();
+    fn start_req_handler(self, rx: Receiver<Message>) {
         thread::spawn(move || {
             for msg in rx.iter() {
-                let node = node.clone();
+                let node = self.clone();
                 let msg = msg.clone();
                 thread::spawn(move || {
-                    let payload = node.handle_request(&msg);
-                    node.rpc.send_reply(payload, &node.node_info, &msg.src, &msg);
+                    let payload = node.handle_request(msg.clone());
+                    node.rpc.send_reply(payload, node.node_info.clone(), &msg.src, &msg);
                 });
             }
         });
     }
 
-    fn handle_request(&self, msg: &Message) -> Payload {
+    fn handle_request(&self, msg: Message) -> Payload {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
                 Payload::Reply(Reply::PingReply)
             }
-            Payload::Request(Request::StoreRequest(ref k, ref v)) => {
+            Payload::Request(Request::StoreRequest(k, v)) => {
                 let mut store = self.store.lock().unwrap();
-                store.insert(k.clone(), v.clone());
+                store.insert(k, v);
                 Payload::Reply(Reply::PingReply)
             }
             Payload::Request(Request::FindNodeRequest(id)) => {
                 let routes = self.routes.lock().unwrap();
                 Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K)))
             }
-            Payload::Request(Request::FindValueRequest(ref k)) => {
+            Payload::Request(Request::FindValueRequest(k)) => {
                 panic!("Not implemented");
             }
             _ => {
@@ -93,26 +92,26 @@ impl Kademlia {
 
     pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::PingRequest),
-                              &self.node_info,
+                              self.node_info.clone(),
                               &dst_info)
     }
 
     pub fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::StoreRequest(String::from(k),
                                                                      String::from(v))),
-                              &self.node_info,
+                              self.node_info.clone(),
                               &dst_info)
     }
 
     pub fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::FindNodeRequest(id)),
-                              &self.node_info,
+                              self.node_info.clone(),
                               &dst_info)
     }
 
     pub fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::FindValueRequest(String::from(k))),
-                              &self.node_info,
+                              self.node_info.clone(),
                               &dst_info)
     }
 }
@@ -138,7 +137,7 @@ impl Rpc {
                 // it actually came from
                 let (len, _) = rpc.socket.recv_from(&mut buf).unwrap();
                 let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
-                let msg: Message = json::decode(&buf_str).unwrap();
+                let msg = json::decode::<Message>(&buf_str).unwrap();
 
                 println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
@@ -158,7 +157,7 @@ impl Rpc {
                         }
                     }
                     Payload::Reply(_) => {
-                        rpc.pass_reply(msg);
+                        rpc.clone().pass_reply(msg);
                     }
                 }
             }
@@ -166,10 +165,9 @@ impl Rpc {
         ret
     }
 
-    fn pass_reply(&self, msg: Message) {
-        let rpc = self.clone();
+    fn pass_reply(self, msg: Message) {
         thread::spawn(move || {
-            let mut pending = rpc.pending.lock().unwrap();
+            let mut pending = self.pending.lock().unwrap();
             let send_res = match pending.get(&msg.token) {
                 Some(tx) => {
                     tx.send(Some(msg.clone()))
@@ -192,16 +190,16 @@ impl Rpc {
         println!("| OUT | {:?} ==> {:?} ", msg.payload, addr);
     }
 
-    fn send_reply(&self, data: Payload, src_info: &NodeInfo, dst_info: &NodeInfo, orig: &Message) {
+    fn send_reply(&self, data: Payload, src_info: NodeInfo, dst_info: &NodeInfo, orig: &Message) {
         let msg = Message {
-            src: src_info.clone(),
+            src: src_info,
             token: orig.token,
             payload: data,
         };
         self.send_message(&msg, &dst_info.addr);
     }
 
-    fn send_request(&self, data: Payload, src_info: &NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+    fn send_request(&self, data: Payload, src_info: NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
         let (tx, rx) = mpsc::channel();
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
@@ -212,7 +210,7 @@ impl Rpc {
         drop(pending);
 
         let msg = Message { 
-            src: src_info.clone(),
+            src: src_info,
             token: token,
             payload: data,
         };
@@ -237,7 +235,7 @@ struct RoutingTable {
 }
 
 impl RoutingTable {
-    fn new(node_info: &NodeInfo) -> RoutingTable {
+    fn new(node_info: NodeInfo) -> RoutingTable {
         let mut buckets = Vec::new();
         for _ in 0..N_BUCKETS {
             buckets.push(Vec::new());
@@ -246,12 +244,12 @@ impl RoutingTable {
             node_info: node_info.clone(),
             buckets: buckets
         };
-        ret.update(&node_info);
+        ret.update(node_info.clone());
         ret
     }
 
     /// Update the appropriate bucket with the new node's info
-    fn update(&mut self, node_info: &NodeInfo) {
+    fn update(&mut self, node_info: NodeInfo) {
         let bucket_index = self.lookup_bucket_index(node_info.id);
         let bucket = &mut self.buckets[bucket_index];
         let node_index = bucket.iter().position(|x| x.id == node_info.id);
@@ -262,7 +260,7 @@ impl RoutingTable {
             }
             None => {
                 if bucket.len() < BUCKET_SIZE {
-                    bucket.push(node_info.clone());
+                    bucket.push(node_info);
                 } else {
                     // go through bucket, pinging nodes, replace one
                     // that doesn't respond.
