@@ -29,6 +29,7 @@ pub struct Handle {
 pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
     pub net_id: String,
+    node_info: NodeInfo,
 }
 
 /// A Kademlia node
@@ -40,22 +41,18 @@ impl Kademlia {
             addr: socket.local_addr().unwrap().to_string(),
         };
         let routes = RoutingTable::new(&node_info);
-        println!("New node created at {:?} with ID {:?}",
-                 &routes.node_info.addr,
-                 &routes.node_info.id);
+        println!("New node created at {:?} with ID {:?}", &node_info.addr, &node_info.id);
 
         let node = Kademlia {
             routes: Arc::new(Mutex::new(routes)),
             net_id: String::from(net_id),
+            node_info: node_info.clone(),
         };
 
         let rpc = Rpc::open_channel(node.clone(), socket);
 
-        let routes = node.routes.clone();
-        let routes = routes.lock().unwrap();
         let dst = NodeInfo { id: Key([0; K]), addr: String::from("127.0.0.1:50001") };
-        let ping_result = rpc.ping(&routes.node_info, &dst);
-        drop(routes);
+        let ping_result = rpc.ping(&dst);
 
         println!("{:?}", ping_result.recv());
 
@@ -68,9 +65,8 @@ impl Kademlia {
     fn handle_request(&self, msg: &Message) -> Message {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
-                let routes = self.routes.lock().unwrap();
                 Message {
-                    src: routes.node_info.clone(),
+                    src: self.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply),
                 }
@@ -81,7 +77,7 @@ impl Kademlia {
             Payload::Request(Request::FindNodeRequest(id)) => {
                 let routes = self.routes.lock().unwrap();
                 Message {
-                    src: routes.node_info.clone(),
+                    src: self.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K))),
                 }
@@ -100,6 +96,7 @@ impl Kademlia {
 struct Rpc {
     socket: Arc<UdpSocket>,
     pending: Arc<Mutex<HashMap<Key,Sender<Option<Message>>>>>,
+    node: Kademlia,
 }
 
 impl Rpc {
@@ -107,6 +104,7 @@ impl Rpc {
         let rpc = Rpc {
             socket: Arc::new(socket),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            node: node,
         };
         let ret = rpc.clone();
         thread::spawn(move || {
@@ -126,9 +124,8 @@ impl Rpc {
                     }
                     Payload::Request(_) => {
                         let rpc = rpc.clone();
-                        let node = node.clone();
                         thread::spawn(move || {
-                            let reply = node.handle_request(&msg);
+                            let reply = rpc.node.handle_request(&msg);
                             rpc.send_message(&reply, &msg.src.addr);
                         });
                     }
@@ -163,26 +160,28 @@ impl Rpc {
         println!("| OUT | {:?} ==> {:?} ", msg.payload, addr);
     }
 
-    fn send_request(&self, data: Payload, src_info: &NodeInfo, addr: &str) -> Receiver<Option<Message>> {
+    fn send_request(&self, data: Payload, addr: &str) -> Receiver<Option<Message>> {
+        let (tx, rx) = mpsc::channel();
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
         while pending.contains_key(&token) {
             token = Key::random();
         }
-        let (tx, rx) = mpsc::channel();
+        pending.insert(token, tx.clone());
+        drop(pending);
+
         let msg = Message { 
-            src: src_info.clone(),
+            src: self.node.node_info.clone(),
             token: token,
             payload: data,
         };
         self.send_message(&msg, addr);
-        pending.insert(token, tx.clone());
-        drop(pending);
-        let clone = self.clone();
+
+        let rpc = self.clone();
         thread::spawn(move || {
             thread::sleep_ms(TIMEOUT);
             if let Ok(_) = tx.send(None) {
-                let mut pending = clone.pending.lock().unwrap();
+                let mut pending = rpc.pending.lock().unwrap();
                 pending.remove(&token);
             }
             println!("timeout :(");
@@ -190,8 +189,11 @@ impl Rpc {
         rx
     }
 
-    fn ping(&self, src_info: &NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
-        self.send_request(Payload::Request(Request::PingRequest), src_info, &dst_info.addr)
+    fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+        self.send_request(Payload::Request(Request::PingRequest), &dst_info.addr)
+    }
+
+    fn store(&self, dst_info: &NodeInfo) {
     }
 }
 
