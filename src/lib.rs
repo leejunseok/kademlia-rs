@@ -25,6 +25,24 @@ pub struct Handle {
     rpc: Rpc,
 }
 
+impl Handle {
+    pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+        self.rpc.request(Payload::Request(Request::PingRequest), &dst_info.addr)
+    }
+
+    pub fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
+        self.rpc.request(Payload::Request(Request::StoreRequest(String::from(k), String::from(v))), &dst_info.addr)
+    }
+
+    pub fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
+        self.rpc.request(Payload::Request(Request::FindNodeRequest(id)), &dst_info.addr)
+    }
+
+    pub fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
+        self.rpc.request(Payload::Request(Request::FindValueRequest(String::from(k))), &dst_info.addr)
+    }
+}
+
 #[derive(Clone)]
 pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
@@ -53,15 +71,16 @@ impl Kademlia {
 
         let rpc = Rpc::open_channel(node.clone(), socket);
 
-        let dst = NodeInfo { id: Key([0; K]), addr: String::from("127.0.0.1:50001") };
-        let ping_result = rpc.ping(&dst);
-
-        println!("{:?}", ping_result.recv());
-
-        Handle {
+        let handle = Handle {
             node: node,
             rpc: rpc,
-        }
+        };
+
+        let dst = NodeInfo { id: Key([0; K]), addr: String::from("127.0.0.1:50001") };
+        let ping_result = handle.ping(&dst);
+        println!("{:?}", ping_result.recv());
+
+        handle
     }
 
     fn handle_request(&self, msg: &Message) -> Message {
@@ -176,7 +195,7 @@ impl Rpc {
         println!("| OUT | {:?} ==> {:?} ", msg.payload, addr);
     }
 
-    fn send_request(&self, data: Payload, addr: &str) -> Receiver<Option<Message>> {
+    fn request(&self, data: Payload, addr: &str) -> Receiver<Option<Message>> {
         let (tx, rx) = mpsc::channel();
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
@@ -204,22 +223,6 @@ impl Rpc {
             println!("timeout :(");
         });
         rx
-    }
-
-    fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
-        self.send_request(Payload::Request(Request::PingRequest), &dst_info.addr)
-    }
-
-    fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
-        self.send_request(Payload::Request(Request::StoreRequest(String::from(k), String::from(v))), &dst_info.addr)
-    }
-
-    fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
-        self.send_request(Payload::Request(Request::FindNodeRequest(id)), &dst_info.addr)
-    }
-
-    fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
-        self.send_request(Payload::Request(Request::FindValueRequest(String::from(k))), &dst_info.addr)
     }
 }
 
