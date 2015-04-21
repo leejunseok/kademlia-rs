@@ -19,41 +19,18 @@ const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 const TIMEOUT: u32 = 5000;
 
-/// A handle on the Kademlia node
-pub struct Handle {
-    node: Kademlia,
-    rpc: Rpc,
-}
-
-impl Handle {
-    pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
-        self.rpc.request(Payload::Request(Request::PingRequest), &dst_info.addr)
-    }
-
-    pub fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
-        self.rpc.request(Payload::Request(Request::StoreRequest(String::from(k), String::from(v))), &dst_info.addr)
-    }
-
-    pub fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
-        self.rpc.request(Payload::Request(Request::FindNodeRequest(id)), &dst_info.addr)
-    }
-
-    pub fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
-        self.rpc.request(Payload::Request(Request::FindValueRequest(String::from(k))), &dst_info.addr)
-    }
-}
-
 #[derive(Clone)]
 pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
     store: Arc<Mutex<HashMap<String, String>>>,
+    rpc: Arc<Rpc>,
     pub net_id: String,
     pub node_info: NodeInfo,
 }
 
 /// A Kademlia node
 impl Kademlia {
-    pub fn start(net_id: &str, node_id: Key, node_addr: &str, bootstrap: &str) -> Handle {
+    pub fn start(net_id: &str, node_id: Key, node_addr: &str, bootstrap: &str) -> Kademlia {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
@@ -62,25 +39,36 @@ impl Kademlia {
         let routes = RoutingTable::new(&node_info);
         println!("New node created at {:?} with ID {:?}", &node_info.addr, &node_info.id);
 
+        let (tx, rx) = mpsc::channel();
+        let rpc = Rpc::open_channel(socket, tx);
+
         let node = Kademlia {
             routes: Arc::new(Mutex::new(routes)),
             store: Arc::new(Mutex::new(HashMap::new())),
             net_id: String::from(net_id),
             node_info: node_info.clone(),
+            rpc: Arc::new(rpc),
         };
 
-        let rpc = Rpc::open_channel(node.clone(), socket);
-
-        let handle = Handle {
-            node: node,
-            rpc: rpc,
-        };
+        node.start_req_handler(rx);
 
         let dst = NodeInfo { id: Key([0; K]), addr: String::from("127.0.0.1:50001") };
-        let ping_result = handle.ping(&dst);
+        let ping_result = node.ping(&dst);
         println!("{:?}", ping_result.recv());
 
-        handle
+        node
+    }
+
+    fn start_req_handler(&self, rx: Receiver<Message>) {
+        let node = self.clone();
+        thread::spawn(move || {
+            for msg in rx.iter() {
+                let node = node.clone();
+                thread::spawn(move || {
+                    node.handle_request(&msg.clone());
+                });
+            }
+        });
     }
 
     fn handle_request(&self, msg: &Message) -> Message {
@@ -120,21 +108,43 @@ impl Kademlia {
             }
         }
     }
+
+    pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+        self.rpc.send_request(Payload::Request(Request::PingRequest),
+                         &self.node_info,
+                         &dst_info)
+    }
+
+    pub fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
+        self.rpc.send_request(Payload::Request(Request::StoreRequest(String::from(k), String::from(v))),
+                         &self.node_info,
+                         &dst_info)
+    }
+
+    pub fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
+        self.rpc.send_request(Payload::Request(Request::FindNodeRequest(id)),
+                         &self.node_info,
+                         &dst_info)
+    }
+
+    pub fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
+        self.rpc.send_request(Payload::Request(Request::FindValueRequest(String::from(k))),
+                         &self.node_info,
+                         &dst_info)
+    }
 }
 
 #[derive(Clone)]
 struct Rpc {
     socket: Arc<UdpSocket>,
     pending: Arc<Mutex<HashMap<Key,Sender<Option<Message>>>>>,
-    node: Kademlia,
 }
 
 impl Rpc {
-    fn open_channel(node: Kademlia, socket: UdpSocket) -> Rpc {
+    fn open_channel(socket: UdpSocket, tx: Sender<Message>) -> Rpc {
         let rpc = Rpc {
             socket: Arc::new(socket),
             pending: Arc::new(Mutex::new(HashMap::new())),
-            node: node,
         };
         let ret = rpc.clone();
         thread::spawn(move || {
@@ -148,21 +158,17 @@ impl Rpc {
 
                 println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
-                if msg.net_id != rpc.node.net_id {
-                    println!("Message from different net_id received, ignoring");
-                    continue;
-                }
+                //if msg.net_id != rpc.node.net_id {
+                //    println!("Message from different net_id received, ignoring");
+                //    continue;
+                //}
 
                 match msg.payload {
                     Payload::Kill => {
                         break;
                     }
                     Payload::Request(_) => {
-                        let rpc = rpc.clone();
-                        thread::spawn(move || {
-                            let reply = rpc.node.handle_request(&msg);
-                            rpc.send_message(&reply, &msg.src.addr);
-                        });
+                        tx.send(msg);
                     }
                     Payload::Reply(_) => {
                         let rpc = rpc.clone();
@@ -195,7 +201,7 @@ impl Rpc {
         println!("| OUT | {:?} ==> {:?} ", msg.payload, addr);
     }
 
-    fn request(&self, data: Payload, addr: &str) -> Receiver<Option<Message>> {
+    fn send_request(&self, data: Payload, src_info: &NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
         let (tx, rx) = mpsc::channel();
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
@@ -206,12 +212,12 @@ impl Rpc {
         drop(pending);
 
         let msg = Message { 
-            src: self.node.node_info.clone(),
+            src: src_info.clone(),
             token: token,
             payload: data,
-            net_id: self.node.net_id.clone(),
+            net_id: String::from("asdf"),
         };
-        self.send_message(&msg, addr);
+        self.send_message(&msg, &dst_info.addr);
 
         let rpc = self.clone();
         thread::spawn(move || {
