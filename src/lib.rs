@@ -163,7 +163,7 @@ impl Rpc {
         println!("| OUT | {:?} ==> {:?} ", msg.payload, addr);
     }
 
-    fn ping(&self, src_info: &NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+    fn send_request(&self, data: Payload, src_info: &NodeInfo, addr: &str) -> Receiver<Option<Message>> {
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
         while pending.contains_key(&token) {
@@ -173,9 +173,9 @@ impl Rpc {
         let msg = Message { 
             src: src_info.clone(),
             token: token,
-            payload: Payload::Request(Request::PingRequest),
+            payload: data,
         };
-        self.send_message(&msg, &dst_info.addr);
+        self.send_message(&msg, addr);
         pending.insert(token, tx.clone());
         drop(pending);
         let clone = self.clone();
@@ -188,6 +188,10 @@ impl Rpc {
             println!("timeout :(");
         });
         rx
+    }
+
+    fn ping(&self, src_info: &NodeInfo, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
+        self.send_request(Payload::Request(Request::PingRequest), src_info, &dst_info.addr)
     }
 }
 
