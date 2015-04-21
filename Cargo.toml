@@ -1,5 +1,5 @@
 [package]
-name = "dht"
+name = "kademlia"
 version = "0.0.1"
 authors = ["Junseok Lee <lee.junseok@berkeley.edu>"]
 
