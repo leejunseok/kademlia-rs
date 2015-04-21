@@ -28,6 +28,7 @@ pub struct Handle {
 #[derive(Clone)]
 pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
+    store: Arc<Mutex<HashMap<String, String>>>,
     pub net_id: String,
     node_info: NodeInfo,
 }
@@ -45,6 +46,7 @@ impl Kademlia {
 
         let node = Kademlia {
             routes: Arc::new(Mutex::new(routes)),
+            store: Arc::new(Mutex::new(HashMap::new())),
             net_id: String::from(net_id),
             node_info: node_info.clone(),
         };
