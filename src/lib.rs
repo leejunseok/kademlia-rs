@@ -74,7 +74,13 @@ impl Kademlia {
                 }
             }
             Payload::Request(Request::StoreRequest(ref k, ref v)) => {
-                panic!("Not implemented");
+                let mut store = self.store.lock().unwrap();
+                store.insert(k.clone(), v.clone());
+                Message {
+                    src: self.node_info.clone(),
+                    token: msg.token,
+                    payload: Payload::Reply(Reply::PingReply),
+                }
             }
             Payload::Request(Request::FindNodeRequest(id)) => {
                 let routes = self.routes.lock().unwrap();
