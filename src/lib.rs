@@ -30,7 +30,7 @@ pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
     store: Arc<Mutex<HashMap<String, String>>>,
     pub net_id: String,
-    node_info: NodeInfo,
+    pub node_info: NodeInfo,
 }
 
 /// A Kademlia node
@@ -71,6 +71,7 @@ impl Kademlia {
                     src: self.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply),
+                    net_id: self.net_id.clone(),
                 }
             }
             Payload::Request(Request::StoreRequest(ref k, ref v)) => {
@@ -80,6 +81,7 @@ impl Kademlia {
                     src: self.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::PingReply),
+                    net_id: self.net_id.clone(),
                 }
             }
             Payload::Request(Request::FindNodeRequest(id)) => {
@@ -88,6 +90,7 @@ impl Kademlia {
                     src: self.node_info.clone(),
                     token: msg.token,
                     payload: Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K))),
+                    net_id: self.net_id.clone(),
                 }
             }
             Payload::Request(Request::FindValueRequest(ref k)) => {
@@ -125,6 +128,11 @@ impl Rpc {
                 let msg: Message = json::decode(&buf_str).unwrap();
 
                 println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
+
+                if msg.net_id != rpc.node.net_id {
+                    println!("Message from different net_id received, ignoring");
+                    continue;
+                }
 
                 match msg.payload {
                     Payload::Kill => {
@@ -182,6 +190,7 @@ impl Rpc {
             src: self.node.node_info.clone(),
             token: token,
             payload: data,
+            net_id: self.node.net_id.clone(),
         };
         self.send_message(&msg, addr);
 
@@ -372,6 +381,7 @@ pub struct Message {
     pub src: NodeInfo,
     pub token: Key,
     pub payload: Payload,
+    pub net_id: String,
 }
 
 #[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
