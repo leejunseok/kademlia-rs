@@ -24,7 +24,7 @@ pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
     store: Arc<Mutex<HashMap<String, String>>>,
     rpc: Arc<Rpc>,
-    pub node_info: NodeInfo,
+    node_info: NodeInfo,
 }
 
 /// A Kademlia node
@@ -295,9 +295,9 @@ impl RoutingTable {
 
 #[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
 pub struct NodeInfo {
-    pub id: Key,
-    pub addr: String,
-    pub net_id: String,
+    id: Key,
+    addr: String,
+    net_id: String,
 }
 
 #[derive(Hash,Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
@@ -385,9 +385,9 @@ impl Debug for Distance {
 
 #[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
 pub struct Message {
-    pub src: NodeInfo,
-    pub token: Key,
-    pub payload: Payload,
+    src: NodeInfo,
+    token: Key,
+    payload: Payload,
 }
 
 #[derive(Clone,Debug,RustcEncodable, RustcDecodable)]
