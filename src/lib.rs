@@ -93,26 +93,27 @@ impl Kademlia {
 
     pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::PingRequest),
-                         &self.node_info,
-                         &dst_info)
+                              &self.node_info,
+                              &dst_info)
     }
 
     pub fn store(&self, dst_info: &NodeInfo, k: &str, v: &str) -> Receiver<Option<Message>> {
-        self.rpc.send_request(Payload::Request(Request::StoreRequest(String::from(k), String::from(v))),
-                         &self.node_info,
-                         &dst_info)
+        self.rpc.send_request(Payload::Request(Request::StoreRequest(String::from(k),
+                                                                     String::from(v))),
+                              &self.node_info,
+                              &dst_info)
     }
 
     pub fn find_node(&self, dst_info: &NodeInfo, id: Key) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::FindNodeRequest(id)),
-                         &self.node_info,
-                         &dst_info)
+                              &self.node_info,
+                              &dst_info)
     }
 
     pub fn find_val(&self, dst_info: &NodeInfo, k: &str) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::FindValueRequest(String::from(k))),
-                         &self.node_info,
-                         &dst_info)
+                              &self.node_info,
+                              &dst_info)
     }
 }
 
