@@ -64,6 +64,7 @@ impl Kademlia {
                     node.rpc.send_reply(payload, node.node_info.clone(), &msg.src, &msg);
                 });
             }
+            println!("Channel closed, since sender is dead.");
         });
     }
 
@@ -82,10 +83,19 @@ impl Kademlia {
                 Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K)))
             }
             Payload::Request(Request::FindValueRequest(k)) => {
+                let mut store = self.store.lock().unwrap();
+                match store.remove(&k) {
+                    Some(v) => { Payload::Reply(Reply::FindValueReply(v)) }
+                    None => {
+                        Payload::Reply(Reply::PingReply)
+//                        let routes = self.routes.lock().unwrap();
+//                        Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(sha_hash(k), K)))
+                    }
+                }
                 panic!("Not implemented");
             }
             _ => {
-                panic!("Handle request was given something that's not a request");
+                panic!("Handle request was given something that's not a request.");
             }
         }
     }
@@ -142,7 +152,7 @@ impl Rpc {
                 println!("|  IN | {:?} <== {:?} ", msg.payload, msg.src.id);
 
                 if msg.src.net_id != net_id {
-                    println!("Message from different net_id received, ignoring");
+                    println!("Message from different net_id received, ignoring.");
                     continue;
                 }
 
@@ -152,7 +162,7 @@ impl Rpc {
                     }
                     Payload::Request(_) => {
                         if let Err(_) = tx.send(msg) {
-                            println!("Closing channel, since receiver closed");
+                            println!("Closing channel, since receiver is dead.");
                             break;
                         }
                     }
