@@ -51,14 +51,6 @@ impl Kademlia {
 
         node.start_req_handler(rx);
 
-        let dst = NodeInfo {
-            id: Key([0; K]),
-            addr: String::from("127.0.0.1:50001"),
-            net_id: String::from(net_id),
-        };
-        let ping_result = node.ping(&dst);
-        println!("{:?}", ping_result.recv());
-
         node
     }
 
