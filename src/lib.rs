@@ -152,32 +152,36 @@ impl Rpc {
                     }
                     Payload::Request(_) => {
                         if let Err(_) = tx.send(msg) {
-                            println!("Kademlia node request handler stopped, RPC channel closing...");
+                            println!("Closing channel, since receiver closed");
                             break;
                         }
                     }
                     Payload::Reply(_) => {
-                        let rpc = rpc.clone();
-                        thread::spawn(move || {
-                            let mut pending = rpc.pending.lock().unwrap();
-                            let send_res = match pending.get(&msg.token) {
-                                Some(tx) => {
-                                    tx.send(Some(msg.clone()))
-                                }
-                                None => {
-                                    println!("Unsolicited reply received, ignoring.");
-                                    return;
-                                }
-                            };
-                            if let Ok(_) = send_res {
-                                pending.remove(&msg.token);
-                            }
-                        });
+                        rpc.pass_reply(msg);
                     }
                 }
             }
         });
         ret
+    }
+
+    fn pass_reply(&self, msg: Message) {
+        let rpc = self.clone();
+        thread::spawn(move || {
+            let mut pending = rpc.pending.lock().unwrap();
+            let send_res = match pending.get(&msg.token) {
+                Some(tx) => {
+                    tx.send(Some(msg.clone()))
+                }
+                None => {
+                    println!("Unsolicited reply received, ignoring.");
+                    return;
+                }
+            };
+            if let Ok(_) = send_res {
+                pending.remove(&msg.token);
+            }
+        });
     }
 
     fn send_message(&self, msg: &Message, addr: &str) {
