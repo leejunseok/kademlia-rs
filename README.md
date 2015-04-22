@@ -12,16 +12,17 @@ regarding sharing mutable state and programming multi-threaded applications.
 Implementation
 ==============
 
-Each Kademlia node has two large components: the node itself (represented by the Kademlia struct),
-and the remote procedure call (RPC) facilities, represented by the Rpc struct. They are a bit more
-tightly coupled than I would like, but I've done my best to keep them separate where possible.
+Each Kademlia node has two large components: the node itself (represented by the `Kademlia`
+struct), and the remote procedure call (RPC) facilities, represented by the `Rpc` struct. They are
+a bit more tightly coupled than I would like, but I've done my best to keep them separate where
+possible.
 
 The Kademlia node includes the routing table (K buckets), the store (a basic hash map), and a
-reference to the Rpc. The Rpc struct allows the node to make RPCs, and also provides a source of
-incoming requests to the node. The prerequisite to both of these is Rpc::open_channel(), which
+reference to an `Rpc`. The `Rpc` struct allows the node to make RPCs, and also provides a source of
+incoming requests to the node. The prerequisite to both of these is `Rpc::open_channel()`, which
 takes a UdpSocket and a Rust channel Sender, and starts a new thread to parse, mux, and pass along
 the incoming messages.
 
-Of course, the end user doesn't see all this; they just have to call Kademlia::start() with the
+Of course, the end user doesn't see all this; they just have to call `Kademlia::start()` with the
 appropriate arguments, and they will get back a handle to the node, and this will all happen in the
 background.
