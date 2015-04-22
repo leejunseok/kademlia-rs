@@ -49,7 +49,7 @@ impl Kademlia {
             rpc: Arc::new(rpc),
         };
 
-        node.start_req_handler(rx);
+        node.clone().start_req_handler(rx);
 
         node
     }
@@ -92,7 +92,6 @@ impl Kademlia {
 //                        Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(sha_hash(k), K)))
                     }
                 }
-                panic!("Not implemented");
             }
             _ => {
                 panic!("Handle request was given something that's not a request.");
@@ -317,7 +316,7 @@ impl Key {
     /// Returns a random, K long byte string.
     pub fn random() -> Key {
         let mut res = [0; K];
-        for i in 0us..K {
+        for i in 0usize..K {
             res[i] = rand::random::<u8>();
         }
         Key(res)
@@ -366,7 +365,7 @@ impl Distance {
     /// XORs two Keys
     fn dist(x: Key, y: Key) -> Distance{
         let mut res = [0; K];
-        for i in 0us..K {
+        for i in 0usize..K {
             res[i] = x.0[i] ^ y.0[i];
         }
         Distance(res)
@@ -374,7 +373,7 @@ impl Distance {
 
     fn zeroes_in_prefix(&self) -> usize {
         for i in 0..K {
-            for j in 8us..0 {
+            for j in 8usize..0 {
                 if (self.0[i] >> (7 - j)) & 0x1 != 0 {
                     return i * 8 + j;
                 }
