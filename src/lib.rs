@@ -71,21 +71,39 @@ impl Kademlia {
     fn handle_request(&self, msg: Message) -> Payload {
         match msg.payload {
             Payload::Request(Request::PingRequest) => {
+                let mut routes = self.routes.lock().unwrap();
+                routes.update(msg.src.clone());
+                drop(routes)
+
                 Payload::Reply(Reply::PingReply)
             }
             Payload::Request(Request::StoreRequest(k, v)) => {
+                let mut routes = self.routes.lock().unwrap();
+                routes.update(msg.src.clone());
+                drop(routes)
+
                 let mut store = self.store.lock().unwrap();
                 store.insert(k, v);
+
                 Payload::Reply(Reply::PingReply)
             }
             Payload::Request(Request::FindNodeRequest(id)) => {
-                let routes = self.routes.lock().unwrap();
+                let mut routes = self.routes.lock().unwrap();
+                routes.update(msg.src.clone());
+
                 Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K)))
             }
             Payload::Request(Request::FindValueRequest(k)) => {
                 let mut store = self.store.lock().unwrap();
-                match store.remove(&k) {
-                    Some(v) => { Payload::Reply(Reply::FindValueReply(v)) }
+                let lookup_res = store.remove(&k);
+                drop(store);
+
+                let mut routes = self.routes.lock().unwrap();
+                routes.update(msg.src.clone());
+                match lookup_res {
+                    Some(v) => {
+                        Payload::Reply(Reply::FindValueReply(v))
+                    }
                     None => {
                         Payload::Reply(Reply::PingReply)
 //                        let routes = self.routes.lock().unwrap();
