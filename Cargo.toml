@@ -6,3 +6,4 @@ authors = ["Junseok Lee <lee.junseok@berkeley.edu>"]
 [dependencies]
 rustc-serialize = "*"
 rand = "*"
+rust-crypto = "*"

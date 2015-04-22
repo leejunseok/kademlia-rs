@@ -1,8 +1,12 @@
 extern crate rand;
 extern crate rustc_serialize;
+extern crate crypto;
 
 use rustc_serialize::{Decodable, Encodable, Decoder, Encoder};
 use rustc_serialize::json;
+
+use crypto::sha1::Sha1;
+use crypto::digest::Digest;
 
 use std::str;
 use std::collections::HashMap;
@@ -73,14 +77,14 @@ impl Kademlia {
             Payload::Request(Request::PingRequest) => {
                 let mut routes = self.routes.lock().unwrap();
                 routes.update(msg.src.clone());
-                drop(routes)
+                drop(routes);
 
                 Payload::Reply(Reply::PingReply)
             }
             Payload::Request(Request::StoreRequest(k, v)) => {
                 let mut routes = self.routes.lock().unwrap();
                 routes.update(msg.src.clone());
-                drop(routes)
+                drop(routes);
 
                 let mut store = self.store.lock().unwrap();
                 store.insert(k, v);
@@ -94,6 +98,14 @@ impl Kademlia {
                 Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K)))
             }
             Payload::Request(Request::FindValueRequest(k)) => {
+                let mut hasher = Sha1::new();
+                hasher.input_str(&k);
+                let mut hash = [0u8; K];
+                for (i, b) in hasher.result_str().as_bytes().iter().take(K).enumerate() {
+                    hash[i] = *b;
+                }
+                let hash = Key(hash);
+
                 let mut store = self.store.lock().unwrap();
                 let lookup_res = store.remove(&k);
                 drop(store);
@@ -105,9 +117,8 @@ impl Kademlia {
                         Payload::Reply(Reply::FindValueReply(v))
                     }
                     None => {
-                        Payload::Reply(Reply::PingReply)
-//                        let routes = self.routes.lock().unwrap();
-//                        Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(sha_hash(k), K)))
+                        let routes = self.routes.lock().unwrap();
+                        Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(hash, K)))
                     }
                 }
             }
