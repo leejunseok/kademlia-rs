@@ -1,3 +1,5 @@
+#![feature(std_misc)]
+
 extern crate rand;
 extern crate rustc_serialize;
 extern crate crypto;
@@ -9,8 +11,9 @@ use crypto::sha1::Sha1;
 use crypto::digest::Digest;
 
 use std::str;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet, BinaryHeap};
+use std::sync::{Arc, Mutex, Semaphore};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::fmt::{Error, Debug, Formatter};
@@ -22,6 +25,7 @@ const N_BUCKETS: usize = K * 8;
 const BUCKET_SIZE: usize = 20;
 const MESSAGE_LEN: usize = 8196;
 const TIMEOUT: u32 = 5000;
+const ALPHA: isize = 3;
 
 #[derive(Clone)]
 pub struct Kademlia {
@@ -95,7 +99,8 @@ impl Kademlia {
                 let mut routes = self.routes.lock().unwrap();
                 routes.update(msg.src.clone());
 
-                Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(id, K)))
+                let (ret, _): (Vec<_>, Vec<_>) = routes.closest_nodes(id, K).into_iter().unzip();
+                Payload::Reply(Reply::FindNodeReply(ret))
             }
             Payload::Request(Request::FindValueRequest(k)) => {
                 let mut hasher = Sha1::new();
@@ -118,7 +123,10 @@ impl Kademlia {
                     }
                     None => {
                         let routes = self.routes.lock().unwrap();
-                        Payload::Reply(Reply::FindNodeReply(routes.lookup_nodes(hash, K)))
+                        let (ret, _): (Vec<_>, Vec<_>) = routes.closest_nodes(hash, K)
+                                                               .into_iter()
+                                                               .unzip();
+                        Payload::Reply(Reply::FindNodeReply(ret))
                     }
                 }
             }
@@ -127,6 +135,31 @@ impl Kademlia {
             }
         }
     }
+
+    /*
+    pub fn lookup_nodes(&self, id: Key) -> Vec<NodeInfo> {
+        let routes = self.routes.lock().unwrap();
+        let q = VecDeque::from(routes.closest_nodes(id, K));
+        drop(routes);
+
+        let sem = Arc::new(Semaphore::new(ALPHA));
+        let heap = Arc::new(Mutex::new(BinaryHeap::new()));
+        while let rx.recv()
+            let heap = heap.clone();
+            let node = self.clone();
+            let sem = sem.clone();
+            thread::spawn(move || {
+                let sem_guard = sem.access();
+                let rep = node.find_node(&ni, id).recv().unwrap();
+                if let Some(msg) =  rep {
+                    let mut heap = heap.lock().unwrap();
+                    heap.push(CandidateNode(ni, d));
+                }
+            });
+        }
+        Vec::new()
+    }
+    */
 
     pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::PingRequest),
@@ -311,27 +344,27 @@ impl RoutingTable {
     ///
     /// NOTE: This method is a really stupid, linear time search. I can't find
     /// info on how to use the buckets effectively to solve this.
-    fn lookup_nodes(&self, item: Key, count: usize) -> Vec<NodeInfo> {
+    fn closest_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo,Distance)> {
         if count == 0 {
             return Vec::new();
         }
         let mut ret = Vec::with_capacity(count);
         for bucket in &self.buckets {
             for node_info in bucket {
-                ret.push( (node_info.clone(), Distance::dist(node_info.id, item)) );
+                ret.push( (node_info.clone(), node_info.id.dist(&item)) );
             }
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
         ret.truncate(count);
-        ret.into_iter().map(|p| p.0).collect()
+        ret
     }
 
     fn lookup_bucket_index(&self, item: Key) -> usize {
-        Distance::dist(self.node_info.id, item).zeroes_in_prefix()
+        self.node_info.id.dist(&item).zeroes_in_prefix()
     }
 }
 
-#[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
+#[derive(Eq,PartialEq,Debug,Clone,RustcEncodable,RustcDecodable)]
 pub struct NodeInfo {
     id: Key,
     addr: String,
@@ -350,6 +383,16 @@ impl Key {
         }
         Key(res)
     }
+
+    /// XORs two Keys
+    fn dist(&self, y: &Key) -> Distance{
+        let mut res = [0; K];
+        for i in 0usize..K {
+            res[i] = self.0[i] ^ y.0[i];
+        }
+        Distance(res)
+    }
+
 }
 
 impl Debug for Key {
@@ -391,15 +434,6 @@ impl Encodable for Key {
 struct Distance([u8; K]);
 
 impl Distance {
-    /// XORs two Keys
-    fn dist(x: Key, y: Key) -> Distance{
-        let mut res = [0; K];
-        for i in 0usize..K {
-            res[i] = x.0[i] ^ y.0[i];
-        }
-        Distance(res)
-    }
-
     fn zeroes_in_prefix(&self) -> usize {
         for i in 0..K {
             for j in 8usize..0 {
@@ -448,4 +482,25 @@ pub enum Reply {
     PingReply,
     FindNodeReply(Vec<NodeInfo>),
     FindValueReply(String),
+}
+
+#[derive(Eq)]
+struct CandidateNode(NodeInfo, Distance);
+
+impl Ord for CandidateNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.1.cmp(&other.1)
+    }
+}
+
+impl PartialEq for CandidateNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.1.eq(&other.1)
+    }
+}
+
+impl PartialOrd for CandidateNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.1.partial_cmp(&other.1)
+    }
 }
