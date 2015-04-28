@@ -11,6 +11,40 @@ use ::key::{Distance,Key};
 use ::rpc::{ReqHandle,Rpc};
 use ::routing::{NodeInfo,RoutingTable};
 
+#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
+pub enum Request {
+    PingRequest,
+    StoreRequest(String, String),
+    FindNodeRequest(Key),
+    FindValueRequest(String),
+}
+
+#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
+pub enum FindValueResult {
+    Nodes(Vec<NodeInfo>),
+    Value(String),
+}
+
+#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
+pub enum Reply {
+    PingReply,
+    FindNodeReply(Vec<NodeInfo>),
+    FindValueReply(FindValueResult),
+}
+
+#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
+pub enum Payload {
+    Kill,
+    Request(Request),
+    Reply(Reply),
+}
+
+#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
+pub struct Message {
+    pub src: NodeInfo,
+    pub payload: Payload,
+}
+
 #[derive(Clone)]
 pub struct Kademlia {
     routes: Arc<Mutex<RoutingTable>>,
@@ -100,14 +134,14 @@ impl Kademlia {
                 routes.update(msg.src.clone());
                 match lookup_res {
                     Some(v) => {
-                        Payload::Reply(Reply::FindValueReply(v))
+                        Payload::Reply(Reply::FindValueReply(FindValueResult::Value(v)))
                     }
                     None => {
                         let routes = self.routes.lock().unwrap();
                         let (ret, _): (Vec<_>, Vec<_>) = routes.closest_nodes(hash, K)
                                                                .into_iter()
                                                                .unzip();
-                        Payload::Reply(Reply::FindNodeReply(ret))
+                        Payload::Reply(Reply::FindValueReply(FindValueResult::Nodes(ret)))
                     }
                 }
             }
@@ -244,32 +278,4 @@ impl Kademlia {
         };
         self.rpc.send_req(msg, &dst_info.addr)
     }
-}
-
-#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
-pub struct Message {
-    pub src: NodeInfo,
-    pub payload: Payload,
-}
-
-#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
-pub enum Payload {
-    Kill,
-    Request(Request),
-    Reply(Reply),
-}
-
-#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
-pub enum Request {
-    PingRequest,
-    StoreRequest(String, String),
-    FindNodeRequest(Key),
-    FindValueRequest(String),
-}
-
-#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
-pub enum Reply {
-    PingReply,
-    FindNodeReply(Vec<NodeInfo>),
-    FindValueReply(String),
 }
