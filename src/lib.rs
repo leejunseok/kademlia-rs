@@ -10,8 +10,8 @@ use crypto::digest::Digest;
 
 use std::str;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, BinaryHeap};
-use std::sync::{Arc, Mutex, Semaphore};
+use std::collections::{HashMap, VecDeque, HashSet, BinaryHeap};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::fmt::{Error, Debug, Formatter};
@@ -134,30 +134,63 @@ impl Kademlia {
         }
     }
 
-    /*
-    pub fn lookup_nodes(&self, id: Key) -> Vec<NodeInfo> {
+    pub fn lookup_nodes(&self, id: Key) -> Vec<(NodeInfo,Distance)> {
+        // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
-        let q = VecDeque::from(routes.closest_nodes(id, K));
+        let mut to_query = routes.closest_nodes(id, K).into_iter().collect::<VecDeque<_>>();
+        let mut known = HashSet::new();
         drop(routes);
 
-        let sem = Arc::new(Semaphore::new(ALPHA));
-        let heap = Arc::new(Mutex::new(BinaryHeap::new()));
-        while let rx.recv()
-            let heap = heap.clone();
-            let node = self.clone();
-            let sem = sem.clone();
-            thread::spawn(move || {
-                let sem_guard = sem.access();
-                let rep = node.find_node(&ni, id).recv().unwrap();
-                if let Some(msg) =  rep {
-                    let mut heap = heap.lock().unwrap();
-                    heap.push(CandidateNode(ni, d));
+        // While we still have nodes to query...
+        while !to_query.is_empty() {
+            let mut joins = Vec::new();
+            // ALPHA times...
+            for _ in 0..ALPHA {
+                // as long as we have queries to make...
+                if let Some((ni, d)) = to_query.pop_front() {
+                    let node = self.clone();
+                    // start a thread...
+                    joins.push(thread::spawn(move || {
+                        // that sends a find_node rpc call.
+                        let opt_msg = node.find_node(&ni, id).recv().unwrap();
+                        // If we get a reply...
+                        if let Some(msg) = opt_msg {
+                            // and if we get the reply we expect...
+                            if let Payload::Reply(Reply::FindNodeReply(rep_nodes)) = msg.payload {
+                                // zip it with their distances to the id ...
+                                let mut rep_nodes = rep_nodes.into_iter()
+                                                             .map(|n| (n.clone(), n.id.dist(id)))
+                                                             .collect::<Vec<_>>();
+                                // add the node we just queried ...
+                                rep_nodes.push((ni, d));
+                                // and return it.
+                                Some(rep_nodes)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }));
                 }
-            });
+            }
+            // Collect results of each thread.
+            for j in joins {
+                if let Some(ret) = j.join().unwrap() {
+                    for entry in ret {
+                        // If this is a previously unknown entry...
+                        if known.insert(entry.clone()) {
+                            to_query.push_back(entry);
+                        }
+                    }
+                }
+            }
         }
-        Vec::new()
+
+        let mut ret = known.into_iter().collect::<Vec<_>>();
+        ret.sort_by(|&(_, a),&(_,b)| a.cmp(&b));
+        ret
     }
-    */
 
     pub fn ping(&self, dst_info: &NodeInfo) -> Receiver<Option<Message>> {
         self.rpc.send_request(Payload::Request(Request::PingRequest),
@@ -349,7 +382,7 @@ impl RoutingTable {
         let mut ret = Vec::with_capacity(count);
         for bucket in &self.buckets {
             for node_info in bucket {
-                ret.push( (node_info.clone(), node_info.id.dist(&item)) );
+                ret.push( (node_info.clone(), node_info.id.dist(item)) );
             }
         }
         ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
@@ -358,11 +391,11 @@ impl RoutingTable {
     }
 
     fn lookup_bucket_index(&self, item: Key) -> usize {
-        self.node_info.id.dist(&item).zeroes_in_prefix()
+        self.node_info.id.dist(item).zeroes_in_prefix()
     }
 }
 
-#[derive(Eq,PartialEq,Debug,Clone,RustcEncodable,RustcDecodable)]
+#[derive(Hash,Eq,PartialEq,Debug,Clone,RustcEncodable,RustcDecodable)]
 pub struct NodeInfo {
     id: Key,
     addr: String,
@@ -383,7 +416,7 @@ impl Key {
     }
 
     /// XORs two Keys
-    fn dist(&self, y: &Key) -> Distance{
+    fn dist(&self, y: Key) -> Distance{
         let mut res = [0; K];
         for i in 0usize..K {
             res[i] = self.0[i] ^ y.0[i];
@@ -428,8 +461,8 @@ impl Encodable for Key {
     }
 }
 
-#[derive(Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
-struct Distance([u8; K]);
+#[derive(Hash,Ord,PartialOrd,Eq,PartialEq,Copy,Clone)]
+pub struct Distance([u8; K]);
 
 impl Distance {
     fn zeroes_in_prefix(&self) -> usize {
@@ -480,25 +513,4 @@ pub enum Reply {
     PingReply,
     FindNodeReply(Vec<NodeInfo>),
     FindValueReply(String),
-}
-
-#[derive(Eq)]
-struct CandidateNode(NodeInfo, Distance);
-
-impl Ord for CandidateNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.1.cmp(&other.1)
-    }
-}
-
-impl PartialEq for CandidateNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.1.eq(&other.1)
-    }
-}
-
-impl PartialOrd for CandidateNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.1.partial_cmp(&other.1)
-    }
 }
