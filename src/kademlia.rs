@@ -278,4 +278,16 @@ impl Kademlia {
         };
         self.rpc.send_req(msg, &dst_info.addr)
     }
+
+    pub fn find_val_sync(&self, dst_info: &NodeInfo, k: &str) -> Option<FindValueResult> {
+        let res = self.find_val(dst_info, k).recv().unwrap();
+        if let Some(msg) = res {
+            let mut routes = self.routes.lock().unwrap();
+            routes.update(dst_info.clone());
+            if let Payload::Reply(Reply::FindValueReply(ret)) = msg.payload {
+                return Some(ret);
+            }
+        }
+        None
+    }
 }
