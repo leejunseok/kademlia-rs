@@ -108,9 +108,9 @@ impl Rpc {
 
     /// Sends a message
     fn send_msg(&self, rmsg: &RpcMessage, addr: &str) {
-        let enc_rep = json::encode(rmsg).unwrap();
-        self.socket.send_to(&enc_rep.as_bytes(), addr).unwrap();
-        println!("{:?}", enc_rep);
+        let enc_msg = json::encode(rmsg).unwrap();
+        self.socket.send_to(&enc_msg.as_bytes(), addr).unwrap();
+        //println!("{:?}", enc_msg);
         println!("| OUT | {:?} ==> {:?} ", rmsg.msg, addr);
     }
 
@@ -135,10 +135,10 @@ impl Rpc {
         thread::spawn(move || {
             thread::sleep_ms(TIMEOUT);
             if let Ok(_) = tx.send(None) {
+                println!("timeout :(");
                 let mut pending = rpc.pending.lock().unwrap();
                 pending.remove(&token);
             }
-            println!("timeout :(");
         });
         rx
     }

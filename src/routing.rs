@@ -8,6 +8,7 @@ pub struct NodeInfo {
     pub net_id: String,
 }
 
+#[derive(Debug)]
 pub struct RoutingTable {
     node_info: NodeInfo,
     buckets: Vec<Vec<NodeInfo>>

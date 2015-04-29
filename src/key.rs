@@ -3,6 +3,7 @@ use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use rand;
 use rustc_serialize::{Decodable,Decoder,Encodable,Encoder};
+use rustc_serialize::hex::FromHex;
 
 use ::K;
 
@@ -19,6 +20,17 @@ impl Key {
         Key(res)
     }
 
+    /// Returns the hashed Key of data.
+    pub fn hash(data: String) -> Key {
+        let mut hasher = Sha1::new();
+        hasher.input_str(&data);
+        let mut hash = [0u8; K];
+        for (i, b) in hasher.result_str().as_bytes().iter().take(K).enumerate() {
+            hash[i] = *b;
+        }
+        Key(hash)
+    }
+
     /// XORs two Keys
     pub fn dist(&self, y: Key) -> Distance{
         let mut res = [0; K];
@@ -31,7 +43,7 @@ impl Key {
 
 impl Debug for Key {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        for x in self.0.iter().rev() {
+        for x in self.0.iter() {
             try!(write!(f, "{0:02x}", x));
         }
         Ok(())
@@ -40,13 +52,11 @@ impl Debug for Key {
 
 impl From<String> for Key {
     fn from(s: String) -> Key {
-        let mut hasher = Sha1::new();
-        hasher.input_str(&s);
-        let mut hash = [0u8; K];
-        for (i, b) in hasher.result_str().as_bytes().iter().take(K).enumerate() {
-            hash[i] = *b;
+        let mut ret = [0; K];
+        for (i, byte) in s.from_hex().unwrap().iter().enumerate() {
+            ret[i] = *byte;
         }
-        Key(hash)
+        Key(ret)
     }
 }
 
