@@ -110,3 +110,29 @@ impl Debug for Distance {
         Ok(())
     }
 }
+
+impl Decodable for Distance {
+    fn decode<D: Decoder>(d: &mut D) -> Result<Distance, D::Error> {
+        d.read_seq(|d, len| {
+            if len != K {
+                return Err(d.error("Wrong length key!"));
+            }
+            let mut ret = [0; K];
+            for i in 0..K {
+                ret[i] = try!(d.read_seq_elt(i, Decodable::decode));
+            }
+            Ok(Distance(ret))
+        })
+    }
+}
+
+impl Encodable for Distance {
+    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_seq(K, |s| {
+            for i in 0..K {
+                try!(s.emit_seq_elt(i, |s| self.0[i].encode(s)));
+            }
+            Ok(())
+        })
+    }
+}

@@ -34,7 +34,7 @@ fn main() {
                 handle.find_node(args[1].as_ref(), Key::from(String::from(args[2])));
             }
             "fv" => {
-                handle.find_val(args[1].as_ref(), args[2]);
+                handle.find_value(args[1].as_ref(), args[2]);
             }
             _ => {
                 println!("no match");

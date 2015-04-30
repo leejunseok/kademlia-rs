@@ -21,14 +21,14 @@ pub enum Request {
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum FindValueResult {
-    Nodes(Vec<NodeInfo>),
+    Nodes(Vec<(NodeInfo, Distance)>),
     Value(String),
 }
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum Reply {
     PingReply,
-    FindNodeReply(Vec<NodeInfo>),
+    FindNodeReply(Vec<(NodeInfo, Distance)>),
     FindValueReply(FindValueResult),
 }
 
@@ -120,8 +120,7 @@ impl Kademlia {
                 let mut routes = self.routes.lock().unwrap();
                 routes.update(msg.src.clone());
 
-                let (ret, _): (Vec<_>, Vec<_>) = routes.closest_nodes(id, K).into_iter().unzip();
-                Payload::Reply(Reply::FindNodeReply(ret))
+                Payload::Reply(Reply::FindNodeReply(routes.closest_nodes(id, K)))
             }
             Payload::Request(Request::FindValueRequest(k)) => {
                 let hash = Key::hash(k.clone());
@@ -138,10 +137,7 @@ impl Kademlia {
                     }
                     None => {
                         let routes = self.routes.lock().unwrap();
-                        let (ret, _): (Vec<_>, Vec<_>) = routes.closest_nodes(hash, K)
-                                                               .into_iter()
-                                                               .unzip();
-                        Payload::Reply(Reply::FindValueReply(FindValueResult::Nodes(ret)))
+                        Payload::Reply(Reply::FindValueReply(FindValueResult::Nodes(routes.closest_nodes(hash, K))))
                     }
                 }
             }
@@ -158,34 +154,21 @@ impl Kademlia {
         let mut known = HashSet::new();
         drop(routes);
 
-        // While we still have nodes to query...
-        //     ALPHA times...
-        //         as long as we have queries to make...
-        //             start a thread...
-        //                  that sends a find_node rpc call synchronously
-        //                  if it succeeded, then zip it with the distances to the id and return
-        //     Collect results of each thread.
-        //         If this query didnt time out...
-        //             for each entry...
-        //                 add it to known. If this is a previously unknown entry...
-        //                     add it to the queue of nodes to query
-
         while !to_query.is_empty() {
             let mut joins = Vec::new();
+            let mut queries = Vec::new();
             for _ in 0..ALPHA {
-                if let Some((ni, d)) = to_query.pop_front() {
-                    let node = self.clone();
-                    joins.push(thread::spawn(move || {
-                        let res = node.find_node_sync(&ni.addr, id);
-                        res.map(|nis| {
-                            let mut nis = nis.into_iter()
-                                             .map(|n| (n.clone(), n.id.dist(id)))
-                                             .collect::<Vec<_>>();
-                            nis.push((ni, d));
-                            nis
-                        })
-                    }));
+                if let Some(entry) = to_query.pop_front() {
+                    queries.push(entry);
+                } else {
+                    break;
                 }
+            }
+            for (ni, d) in queries.into_iter() {
+                let node = self.clone();
+                joins.push(thread::spawn(move || {
+                    node.find_node_sync(&ni.addr, id)
+                }));
             }
             for j in joins {
                 if let Some(ret) = j.join().unwrap() {
@@ -227,7 +210,7 @@ impl Kademlia {
         self.rpc.send_req(msg, &addr)
     }
 
-    pub fn find_val(&self, addr: &str, k: &str) -> Receiver<Option<Message>> {
+    pub fn find_value(&self, addr: &str, k: &str) -> Receiver<Option<Message>> {
         let msg = Message {
             src: self.node_info.clone(),
             payload: Payload::Request(Request::FindValueRequest(String::from(k))),
@@ -257,7 +240,7 @@ impl Kademlia {
         }
     }
 
-    pub fn find_node_sync(&self, addr: &str, id: Key) -> Option<Vec<NodeInfo>> {
+    pub fn find_node_sync(&self, addr: &str, id: Key) -> Option<Vec<(NodeInfo, Distance)>> {
         let res = self.find_node(addr, id).recv().unwrap();
         if let Some(msg) = res {
             let mut routes = self.routes.lock().unwrap();
@@ -269,8 +252,8 @@ impl Kademlia {
         None
     }
 
-    pub fn find_val_sync(&self, addr: &str, k: &str) -> Option<FindValueResult> {
-        let res = self.find_val(addr, k).recv().unwrap();
+    pub fn find_value_sync(&self, addr: &str, k: &str) -> Option<FindValueResult> {
+        let res = self.find_value(addr, k).recv().unwrap();
         if let Some(msg) = res {
             let mut routes = self.routes.lock().unwrap();
             routes.update(msg.src.clone());
