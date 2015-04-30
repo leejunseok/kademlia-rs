@@ -8,45 +8,63 @@ use std::thread;
 use rustc_serialize::json;
 
 use ::{MESSAGE_LEN,TIMEOUT};
-use ::kademlia::{Message,Payload};
+use ::kademlia::{Reply,Request};
 use ::key::Key;
+use ::routing::NodeInfo;
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub struct RpcMessage {
     token: Key,
-    pub msg: Message,
+    src: NodeInfo,
+    msg: Message,
+}
+
+#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
+pub enum Message {
+    Kill,
+    Request(Request),
+    Reply(Reply),
 }
 
 pub struct ReqHandle {
-    pub req_msg: Message,
     token: Key,
+    src: NodeInfo,
+    req: Request,
     rpc: Rpc,
 }
 
 impl ReqHandle {
-    pub fn rep(self, rep_msg: Message) {
-        let rmsg = RpcMessage {
+    pub fn get_req(&self) -> &Request {
+        &self.req
+    }
+    pub fn get_src(&self) -> &NodeInfo {
+        &self.src
+    }
+    pub fn rep(self, rep: Reply) {
+        let rep_rmsg = RpcMessage {
             token: self.token,
-            msg: rep_msg,
+            src: self.rpc.node_info.clone(),
+            msg: Message::Reply(rep),
         };
-        self.rpc.send_msg(&rmsg, &self.req_msg.src.addr);
+        self.rpc.send_msg(&rep_rmsg, &self.src.addr);
     }
 }
 
 #[derive(Clone)]
 pub struct Rpc {
     socket: Arc<UdpSocket>,
-    pending: Arc<Mutex<HashMap<Key,Sender<Option<Message>>>>>,
+    pending: Arc<Mutex<HashMap<Key,Sender<Option<Reply>>>>>,
+    node_info: NodeInfo,
 }
 
 impl Rpc {
-    pub fn open(socket: UdpSocket, tx: Sender<ReqHandle>, net_id: &str) -> Rpc {
+    pub fn open(socket: UdpSocket, tx: Sender<ReqHandle>, node_info: NodeInfo) -> Rpc {
         let rpc = Rpc {
             socket: Arc::new(socket),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            node_info: node_info,
         };
         let ret = rpc.clone();
-        let net_id = String::from(net_id);
         thread::spawn(move || {
             let mut buf = [0u8; MESSAGE_LEN];
             loop {
@@ -56,21 +74,22 @@ impl Rpc {
                 let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
                 let rmsg = json::decode::<RpcMessage>(&buf_str).unwrap();
 
-                println!("|  IN | {:?} <== {:?} ", rmsg.msg.payload, rmsg.msg.src.id);
+                println!("|  IN | {:?} <== {:?} ", rmsg.msg, rmsg.src.id);
 
-                if rmsg.msg.src.net_id != net_id {
+                if rmsg.src.net_id != rpc.node_info.net_id {
                     println!("Message from different net_id received, ignoring.");
                     continue;
                 }
 
-                match rmsg.msg.payload {
-                    Payload::Kill => {
+                match rmsg.msg {
+                    Message::Kill => {
                         break;
                     }
-                    Payload::Request(_) => {
+                    Message::Request(req) => {
                         let req_handle = ReqHandle {
-                            req_msg: rmsg.msg,
                             token: rmsg.token,
+                            src: rmsg.src,
+                            req: req,
                             rpc: rpc.clone(),
                         };
                         if let Err(_) = tx.send(req_handle) {
@@ -78,8 +97,8 @@ impl Rpc {
                             break;
                         }
                     }
-                    Payload::Reply(_) => {
-                        rpc.clone().pass_rep(rmsg);
+                    Message::Reply(rep) => {
+                        rpc.clone().handle_rep(rmsg.token, rep);
                     }
                 }
             }
@@ -88,12 +107,12 @@ impl Rpc {
     }
 
     /// Passes a reply received through the Rpc socket to the appropriate pending Receiver
-    fn pass_rep(self, rmsg: RpcMessage) {
+    fn handle_rep(self, token: Key, rep: Reply) {
         thread::spawn(move || {
             let mut pending = self.pending.lock().unwrap();
-            let send_res = match pending.get(&rmsg.token) {
+            let send_res = match pending.get(&token) {
                 Some(tx) => {
-                    tx.send(Some(rmsg.msg.clone()))
+                    tx.send(Some(rep))
                 }
                 None => {
                     println!("Unsolicited reply received, ignoring.");
@@ -101,7 +120,7 @@ impl Rpc {
                 }
             };
             if let Ok(_) = send_res {
-                pending.remove(&rmsg.token);
+                pending.remove(&token);
             }
         });
     }
@@ -115,7 +134,7 @@ impl Rpc {
     }
 
     /// Sends a request of data from src_info to dst_info, returning a Receiver for the reply
-    pub fn send_req(&self, msg: Message, addr: &str) -> Receiver<Option<Message>> {
+    pub fn send_req(&self, req: Request, addr: &str) -> Receiver<Option<Reply>> {
         let (tx, rx) = mpsc::channel();
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
@@ -126,8 +145,9 @@ impl Rpc {
         drop(pending);
 
         let rmsg = RpcMessage { 
+            src: self.node_info.clone(),
             token: token,
-            msg: msg,
+            msg: Message::Request(req),
         };
         self.send_msg(&rmsg, addr);
 

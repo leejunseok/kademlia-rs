@@ -13,10 +13,10 @@ use ::routing::{NodeInfo,RoutingTable};
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum Request {
-    PingRequest,
-    StoreRequest(String, String),
-    FindNodeRequest(Key),
-    FindValueRequest(String),
+    Ping,
+    Store(String, String),
+    FindNode(Key),
+    FindValue(String),
 }
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
@@ -27,22 +27,9 @@ pub enum FindValueResult {
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum Reply {
-    PingReply,
-    FindNodeReply(Vec<(NodeInfo, Distance)>),
-    FindValueReply(FindValueResult),
-}
-
-#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
-pub enum Payload {
-    Kill,
-    Request(Request),
-    Reply(Reply),
-}
-
-#[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
-pub struct Message {
-    pub src: NodeInfo,
-    pub payload: Payload,
+    Ping,
+    FindNode(Vec<(NodeInfo, Distance)>),
+    FindValue(FindValueResult),
 }
 
 #[derive(Clone)]
@@ -66,7 +53,7 @@ impl Kademlia {
         println!("New node created at {} with ID {:?}", &node_info.addr, &node_info.id);
 
         let (tx, rx) = mpsc::channel();
-        let rpc = Rpc::open(socket, tx, net_id);
+        let rpc = Rpc::open(socket, tx, node_info.clone());
 
         let node = Kademlia {
             routes: Arc::new(Mutex::new(routes)),
@@ -85,11 +72,8 @@ impl Kademlia {
             for req_handle in rx.iter() {
                 let node = self.clone();
                 thread::spawn(move || {
-                    let payload = node.handle_req(req_handle.req_msg.clone());
-                    let rep = Message {
-                        src: node.node_info.clone(),
-                        payload: payload,
-                    };
+                    let rep = node.handle_req(req_handle.get_req().clone(),
+                                              req_handle.get_src().clone());
                     req_handle.rep(rep);
                 });
             }
@@ -97,32 +81,32 @@ impl Kademlia {
         });
     }
 
-    fn handle_req(&self, msg: Message) -> Payload {
-        match msg.payload {
-            Payload::Request(Request::PingRequest) => {
+    fn handle_req(&self, req: Request, src: NodeInfo) -> Reply {
+        match req {
+            Request::Ping => {
                 let mut routes = self.routes.lock().unwrap();
-                routes.update(msg.src.clone());
+                routes.update(src);
                 drop(routes);
 
-                Payload::Reply(Reply::PingReply)
+                Reply::Ping
             }
-            Payload::Request(Request::StoreRequest(k, v)) => {
+            Request::Store(k, v) => {
                 let mut routes = self.routes.lock().unwrap();
-                routes.update(msg.src.clone());
+                routes.update(src);
                 drop(routes);
 
                 let mut store = self.store.lock().unwrap();
                 store.insert(k, v);
 
-                Payload::Reply(Reply::PingReply)
+                Reply::Ping
             }
-            Payload::Request(Request::FindNodeRequest(id)) => {
+            Request::FindNode(id) => {
                 let mut routes = self.routes.lock().unwrap();
-                routes.update(msg.src.clone());
+                routes.update(src);
 
-                Payload::Reply(Reply::FindNodeReply(routes.closest_nodes(id, K)))
+                Reply::FindNode(routes.closest_nodes(id, K))
             }
-            Payload::Request(Request::FindValueRequest(k)) => {
+            Request::FindValue(k) => {
                 let hash = Key::hash(k.clone());
 
                 let mut store = self.store.lock().unwrap();
@@ -130,19 +114,15 @@ impl Kademlia {
                 drop(store);
 
                 let mut routes = self.routes.lock().unwrap();
-                routes.update(msg.src.clone());
+                routes.update(src);
                 match lookup_res {
                     Some(v) => {
-                        Payload::Reply(Reply::FindValueReply(FindValueResult::Value(v)))
+                        Reply::FindValue(FindValueResult::Value(v))
                     }
                     None => {
-                        let routes = self.routes.lock().unwrap();
-                        Payload::Reply(Reply::FindValueReply(FindValueResult::Nodes(routes.closest_nodes(hash, K))))
+                        Reply::FindValue(FindValueResult::Nodes(routes.closest_nodes(hash, K)))
                     }
                 }
-            }
-            _ => {
-                panic!("Handle request was given something that's not a request.");
             }
         }
     }
@@ -169,7 +149,7 @@ impl Kademlia {
             for (ni, d) in queries.into_iter() {
                 let node = self.clone();
                 joins.push(thread::spawn(move || {
-                    node.find_node_sync(&ni.addr, id)
+                    node.find_node(ni.clone(), id)
                 }));
             }
             for j in joins {
@@ -215,7 +195,7 @@ impl Kademlia {
                 let node = self.clone();
                 let k = k.clone();
                 joins.push(thread::spawn(move || {
-                    node.find_value_sync(&ni.addr, &k)
+                    node.find_value(ni.clone(), &k)
                 }));
             }
             for j in joins {
@@ -244,81 +224,63 @@ impl Kademlia {
         FindValueResult::Nodes(ret)
     }
 
-    pub fn ping(&self, addr: &str) -> Receiver<Option<Message>> {
-        let msg = Message {
-            src: self.node_info.clone(),
-            payload: Payload::Request(Request::PingRequest),
-        };
-        self.rpc.send_req(msg, &addr)
+    pub fn ping_raw(&self, addr: &str) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Ping, addr)
     }
 
-    pub fn store(&self, addr: &str, k: &str, v: &str) -> Receiver<Option<Message>> {
-        let msg = Message {
-            src: self.node_info.clone(),
-            payload: Payload::Request(Request::StoreRequest(String::from(k), String::from(v))),
-        };
-        self.rpc.send_req(msg, &addr)
+    pub fn store_raw(&self, addr: &str, k: &str, v: &str) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Store(String::from(k), String::from(v)), addr)
     }
 
-    pub fn find_node(&self, addr: &str, id: Key) -> Receiver<Option<Message>> {
-        let msg = Message {
-            src: self.node_info.clone(),
-            payload: Payload::Request(Request::FindNodeRequest(id)),
-        };
-        self.rpc.send_req(msg, &addr)
+    pub fn find_node_raw(&self, addr: &str, id: Key) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindNode(id), addr)
     }
 
-    pub fn find_value(&self, addr: &str, k: &str) -> Receiver<Option<Message>> {
-        let msg = Message {
-            src: self.node_info.clone(),
-            payload: Payload::Request(Request::FindValueRequest(String::from(k))),
-        };
-        self.rpc.send_req(msg, &addr)
+    pub fn find_value_raw(&self, addr: &str, k: &str) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindValue(String::from(k)), addr)
     }
 
-    pub fn ping_sync(&self, addr: &str) -> Option<()> {
-        let res = self.ping(addr).recv().unwrap();
-        if let Some(msg) = res {
+    pub fn ping(&self, dst: NodeInfo) -> Option<()> {
+        let rep = self.ping_raw(&dst.addr).recv().unwrap();
+        if let Some(Reply::Ping) = rep {
             let mut routes = self.routes.lock().unwrap();
-            routes.update(msg.src.clone());
+            routes.update(dst);
             Some(())
         } else {
             None
         }
     }
 
-    pub fn store_sync(&self, addr: &str, k: &str, v:&str) -> Option<()> {
-        let res = self.store(addr, k, v).recv().unwrap();
-        if let Some(msg) = res {
+    pub fn store(&self, dst: NodeInfo, k: &str, v:&str) -> Option<()> {
+        let rep = self.store_raw(&dst.addr, k, v).recv().unwrap();
+        if let Some(Reply::Ping) = rep {
             let mut routes = self.routes.lock().unwrap();
-            routes.update(msg.src.clone());
+            routes.update(dst);
             Some(())
         } else {
             None
         }
     }
 
-    pub fn find_node_sync(&self, addr: &str, id: Key) -> Option<Vec<(NodeInfo, Distance)>> {
-        let res = self.find_node(addr, id).recv().unwrap();
-        if let Some(msg) = res {
+    pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<(NodeInfo, Distance)>> {
+        let rep = self.find_node_raw(&dst.addr, id).recv().unwrap();
+        if let Some(Reply::FindNode(entries)) = rep {
             let mut routes = self.routes.lock().unwrap();
-            routes.update(msg.src.clone());
-            if let Payload::Reply(Reply::FindNodeReply(nodes)) = msg.payload {
-                return Some(nodes);
-            }
+            routes.update(dst);
+            Some(entries)
+        } else {
+            None
         }
-        None
     }
 
-    pub fn find_value_sync(&self, addr: &str, k: &str) -> Option<FindValueResult> {
-        let res = self.find_value(addr, k).recv().unwrap();
-        if let Some(msg) = res {
+    pub fn find_value(&self, dst: NodeInfo, k: &str) -> Option<FindValueResult> {
+        let rep = self.find_value_raw(&dst.addr, k).recv().unwrap();
+        if let Some(Reply::FindValue(res)) = rep {
             let mut routes = self.routes.lock().unwrap();
-            routes.update(msg.src.clone());
-            if let Payload::Reply(Reply::FindValueReply(ret)) = msg.payload {
-                return Some(ret);
-            }
+            routes.update(dst);
+            Some(res)
+        } else {
+            None
         }
-        None
     }
 }

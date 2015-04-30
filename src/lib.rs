@@ -9,6 +9,7 @@ mod routing;
 
 pub use kademlia::Kademlia;
 pub use key::Key;
+pub use routing::NodeInfo;
 
 const K: usize = 20;
 const N_BUCKETS: usize = K * 8;
