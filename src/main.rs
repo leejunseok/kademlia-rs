@@ -1,10 +1,13 @@
 extern crate rustc_serialize;
 extern crate kademlia;
+extern crate env_logger;
 
 use std::io;
 use kademlia::*;
 
 fn main() {
+    env_logger::init().unwrap();
+
     let mut input = io::stdin();
     let mut buffer = String::new();
     input.read_line(&mut buffer).unwrap();

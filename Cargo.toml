@@ -7,3 +7,5 @@ authors = ["Junseok Lee <lee.junseok@berkeley.edu>"]
 rustc-serialize = "*"
 rand = "*"
 rust-crypto = "*"
+log = "*"
+env_logger = "*"

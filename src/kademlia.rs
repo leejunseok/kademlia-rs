@@ -53,7 +53,7 @@ impl Kademlia {
         if let Some(bootstrap) = bootstrap {
             routes.update(bootstrap);
         }
-        println!("New node created at {} with ID {:?}", &node_info.addr, &node_info.id);
+        info!("New node created at {} with ID {:?}", &node_info.addr, &node_info.id);
 
         let (tx, rx) = mpsc::channel();
         let rpc = Rpc::open(socket, tx, node_info.clone());
@@ -82,26 +82,33 @@ impl Kademlia {
                     req_handle.rep(rep);
                 });
             }
-            println!("Channel closed, since sender is dead.");
+            info!("Channel closed, since sender is dead.");
         });
     }
 
     fn handle_req(&self, req: Request, src: NodeInfo) -> Reply {
         let mut routes = self.routes.lock().unwrap();
-        routes.update(src);
+        routes.update(src.clone());
         drop(routes);
         match req {
             Request::Ping => {
+                info!("Ping from/Pong to {:?}", &src.id);
+
                 Reply::Ping
             }
             Request::Store(k, v) => {
                 let mut store = self.store.lock().unwrap();
-                store.insert(k, v);
+                store.insert(k.clone(), v.clone());
+
+                info!("Stored \"{:?}\" -> \"{:?}\" at request of {:?}", &k, &v, &src.id);
 
                 Reply::Ping
             }
             Request::FindNode(id) => {
                 let routes = self.routes.lock().unwrap();
+
+                info!("FindNode from {:?}", &src.id);
+
                 Reply::FindNode(routes.closest_nodes(id, K_PARAM))
             }
             Request::FindValue(k) => {
@@ -113,10 +120,12 @@ impl Kademlia {
 
                 match lookup_res {
                     Some(v) => {
+                        info!("FindValue from {:?}, returning value \"{:?}\".", &src.id, &v);
                         Reply::FindValue(FindValueResult::Value(v))
                     }
                     None => {
                         let routes = self.routes.lock().unwrap();
+                        info!("FindValue from {:?}, returning closest nodes.", &src.id);
                         Reply::FindValue(FindValueResult::Nodes(routes.closest_nodes(hash, K_PARAM)))
                     }
                 }
@@ -235,7 +244,7 @@ impl Kademlia {
         ret
     }
 
-    pub fn lookup_value(&self, k: String) -> Option<String> {
+    pub fn lookup_value(&self, k: String) -> (Option<String>, Vec<NodeAndDistance>) {
         let id = Key::hash(k.clone());
         let mut queried = HashSet::new();
         let mut ret = HashSet::new();
@@ -282,14 +291,21 @@ impl Kademlia {
                             }
                         }
                         FindValueResult::Value(val) => {
-                            return Some(val);
+                            let mut ret = ret.into_iter().collect::<Vec<_>>();
+                            ret.sort_by(|a,b| a.1.cmp(&b.1));
+                            ret.truncate(K_PARAM);
+                            return (Some(val), ret);
                         }
                     }
                 }
             }
         }
 
-        None
+        let mut ret = ret.into_iter().collect::<Vec<_>>();
+        ret.sort_by(|a,b| a.1.cmp(&b.1));
+        ret.truncate(K_PARAM);
+
+        (None, ret)
     }
 
     pub fn put(&self, k: String, v: String) {
@@ -305,6 +321,19 @@ impl Kademlia {
     }
 
     pub fn get(&self, k: String) -> Option<String> {
-        self.lookup_value(k)
+        let (v_opt, mut nodes) = self.lookup_value(k.clone());
+        v_opt.map(|v| {
+            if let Some(NodeAndDistance(store_target, _)) = nodes.pop() {
+                self.store(store_target, k, v.clone());
+            } else {
+                self.store(self.node_info.clone(), k, v.clone());
+            }
+            v
+        })
+    }
+
+    pub fn print_routes(&self) {
+        let routes = self.routes.lock().unwrap();
+        routes.print();
     }
 }

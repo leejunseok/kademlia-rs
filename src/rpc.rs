@@ -75,14 +75,14 @@ impl Rpc {
                 let mut rmsg = json::decode::<RpcMessage>(&buf_str).unwrap();
                 rmsg.src.addr = src_addr.to_string();
 
-                println!("|  IN | {:?} <== {:?} ", rmsg.msg, rmsg.src.id);
+                debug!("|  IN | {:?} <== {:?} ", rmsg.msg, rmsg.src.id);
 
                 if rmsg.src.net_id != rpc.node_info.net_id {
-                    println!("Message from different net_id received, ignoring.");
+                    warn!("Message from different net_id received, ignoring.");
                     continue;
                 }
                 if rmsg.dst.id != rpc.node_info.id {
-                    println!("Message received, but dst id does not match this node, ignoring.");
+                    warn!("Message received, but dst id does not match this node, ignoring.");
                     continue;
                 }
 
@@ -98,7 +98,7 @@ impl Rpc {
                             rpc: rpc.clone(),
                         };
                         if let Err(_) = tx.send(req_handle) {
-                            println!("Closing channel, since receiver is dead.");
+                            info!("Closing channel, since receiver is dead.");
                             break;
                         }
                     }
@@ -120,7 +120,7 @@ impl Rpc {
                     tx.send(Some(rep))
                 }
                 None => {
-                    println!("Unsolicited reply received, ignoring.");
+                    warn!("Unsolicited reply received, ignoring.");
                     return;
                 }
             };
@@ -134,8 +134,7 @@ impl Rpc {
     fn send_msg(&self, rmsg: &RpcMessage, addr: &str) {
         let enc_msg = json::encode(rmsg).unwrap();
         self.socket.send_to(&enc_msg.as_bytes(), addr).unwrap();
-        //println!("{:?}", enc_msg);
-        println!("| OUT | {:?} ==> {:?} ", rmsg.msg, addr);
+        debug!("| OUT | {:?} ==> {:?} ", rmsg.msg, addr);
     }
 
     /// Sends a request of data from src_info to dst_info, returning a Receiver for the reply
@@ -161,7 +160,7 @@ impl Rpc {
         thread::spawn(move || {
             thread::sleep_ms(TIMEOUT);
             if let Ok(_) = tx.send(None) {
-                println!("timeout :(");
+                debug!("timeout :(");
                 let mut pending = rpc.pending.lock().unwrap();
                 pending.remove(&token);
             }

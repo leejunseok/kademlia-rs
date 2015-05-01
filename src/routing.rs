@@ -93,4 +93,8 @@ impl RoutingTable {
     fn lookup_bucket_index(&self, item: Key) -> usize {
         self.node_info.id.dist(item).zeroes_in_prefix()
     }
+
+    pub fn print(&self) {
+        info!("{:?}", self.buckets);
+    }
 }
