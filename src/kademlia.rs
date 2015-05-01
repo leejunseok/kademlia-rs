@@ -82,19 +82,14 @@ impl Kademlia {
     }
 
     fn handle_req(&self, req: Request, src: NodeInfo) -> Reply {
+        let mut routes = self.routes.lock().unwrap();
+        routes.update(src);
+        drop(routes);
         match req {
             Request::Ping => {
-                let mut routes = self.routes.lock().unwrap();
-                routes.update(src);
-                drop(routes);
-
                 Reply::Ping
             }
             Request::Store(k, v) => {
-                let mut routes = self.routes.lock().unwrap();
-                routes.update(src);
-                drop(routes);
-
                 let mut store = self.store.lock().unwrap();
                 store.insert(k, v);
 
@@ -102,8 +97,6 @@ impl Kademlia {
             }
             Request::FindNode(id) => {
                 let mut routes = self.routes.lock().unwrap();
-                routes.update(src);
-
                 Reply::FindNode(routes.closest_nodes(id, K))
             }
             Request::FindValue(k) => {
@@ -113,13 +106,12 @@ impl Kademlia {
                 let lookup_res = store.remove(&k);
                 drop(store);
 
-                let mut routes = self.routes.lock().unwrap();
-                routes.update(src);
                 match lookup_res {
                     Some(v) => {
                         Reply::FindValue(FindValueResult::Value(v))
                     }
                     None => {
+                        let mut routes = self.routes.lock().unwrap();
                         Reply::FindValue(FindValueResult::Nodes(routes.closest_nodes(hash, K)))
                     }
                 }
