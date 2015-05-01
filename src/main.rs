@@ -5,7 +5,7 @@ use std::io;
 use kademlia::*;
 
 fn main() {
-    let handle = Kademlia::start("test_net",
+    let handle = Kademlia::start(String::from("test_net"),
                                  Key::random(),
                                  "127.0.0.1:0",
                                  "127.0.0.1:0");
@@ -30,7 +30,7 @@ fn main() {
             }
             "s" => {
                 dummy_info.addr = String::from(args[1]);
-                handle.store(dummy_info.clone(), args[2], args[3]);
+                handle.store(dummy_info.clone(), String::from(args[2]), String::from(args[3]));
             }
             "fn" => {
                 dummy_info.addr = String::from(args[1]);
@@ -38,7 +38,7 @@ fn main() {
             }
             "fv" => {
                 dummy_info.addr = String::from(args[1]);
-                handle.find_value(dummy_info.clone(), args[2]);
+                handle.find_value(dummy_info.clone(), String::from(args[2]));
             }
             _ => {
                 println!("no match");

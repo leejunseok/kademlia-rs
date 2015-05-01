@@ -42,12 +42,12 @@ pub struct Kademlia {
 
 /// A Kademlia node
 impl Kademlia {
-    pub fn start(net_id: &str, node_id: Key, node_addr: &str, bootstrap: &str) -> Kademlia {
+    pub fn start(net_id: String, node_id: Key, node_addr: &str, bootstrap: &str) -> Kademlia {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
             id: node_id,
             addr: socket.local_addr().unwrap().to_string(),
-            net_id: String::from(net_id),
+            net_id: net_id,
         };
         let routes = RoutingTable::new(node_info.clone());
         println!("New node created at {} with ID {:?}", &node_info.addr, &node_info.id);
@@ -191,7 +191,7 @@ impl Kademlia {
                 let node = self.clone();
                 let k = k.clone();
                 joins.push(thread::spawn(move || {
-                    let fvr_opt = node.find_value(ni.clone(), &k);
+                    let fvr_opt = node.find_value(ni.clone(), k);
                     fvr_opt.map(|fvr| {
                         if let FindValueResult::Nodes(mut res) = fvr {
                             res.push(NodeAndDistance(ni,d));
@@ -232,16 +232,16 @@ impl Kademlia {
         self.rpc.send_req(Request::Ping, addr)
     }
 
-    pub fn store_raw(&self, addr: &str, k: &str, v: &str) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::Store(String::from(k), String::from(v)), addr)
+    pub fn store_raw(&self, addr: &str, k: String, v: String) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Store(k, v), addr)
     }
 
     pub fn find_node_raw(&self, addr: &str, id: Key) -> Receiver<Option<Reply>> {
         self.rpc.send_req(Request::FindNode(id), addr)
     }
 
-    pub fn find_value_raw(&self, addr: &str, k: &str) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::FindValue(String::from(k)), addr)
+    pub fn find_value_raw(&self, addr: &str, k: String) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindValue(k), addr)
     }
 
     pub fn ping(&self, dst: NodeInfo) -> Option<()> {
@@ -255,7 +255,7 @@ impl Kademlia {
         }
     }
 
-    pub fn store(&self, dst: NodeInfo, k: &str, v:&str) -> Option<()> {
+    pub fn store(&self, dst: NodeInfo, k: String, v: String) -> Option<()> {
         let rep = self.store_raw(&dst.addr, k, v).recv().unwrap();
         if let Some(Reply::Ping) = rep {
             let mut routes = self.routes.lock().unwrap();
@@ -277,7 +277,7 @@ impl Kademlia {
         }
     }
 
-    pub fn find_value(&self, dst: NodeInfo, k: &str) -> Option<FindValueResult> {
+    pub fn find_value(&self, dst: NodeInfo, k: String) -> Option<FindValueResult> {
         let rep = self.find_value_raw(&dst.addr, k).recv().unwrap();
         if let Some(Reply::FindValue(res)) = rep {
             let mut routes = self.routes.lock().unwrap();
