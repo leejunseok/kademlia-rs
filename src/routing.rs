@@ -1,4 +1,5 @@
-use ::{BUCKET_SIZE,N_BUCKETS};
+use std::cmp::Ordering;
+use ::{N_BUCKETS,K_PARAM};
 use ::key::{Distance,Key};
 
 #[derive(Hash,Eq,PartialEq,Debug,Clone,RustcEncodable,RustcDecodable)]
@@ -12,6 +13,27 @@ pub struct NodeInfo {
 pub struct RoutingTable {
     node_info: NodeInfo,
     buckets: Vec<Vec<NodeInfo>>
+}
+
+#[derive(Eq,Hash,Clone,Debug,RustcEncodable,RustcDecodable)]
+pub struct NodeAndDistance(pub NodeInfo, pub Distance);
+
+impl PartialEq for NodeAndDistance {
+    fn eq(&self, other: &NodeAndDistance) -> bool {
+        self.1.eq(&other.1)
+    }
+}
+
+impl PartialOrd for NodeAndDistance {
+    fn partial_cmp(&self, other: &NodeAndDistance) -> Option<Ordering> {
+        Some(other.1.cmp(&self.1))
+    }
+}
+
+impl Ord for NodeAndDistance {
+    fn cmp(&self, other: &NodeAndDistance) -> Ordering {
+        other.1.cmp(&self.1)
+    }
 }
 
 impl RoutingTable {
@@ -39,7 +61,7 @@ impl RoutingTable {
                 bucket.push(temp);
             }
             None => {
-                if bucket.len() < BUCKET_SIZE {
+                if bucket.len() < K_PARAM {
                     bucket.push(node_info);
                 } else {
                     // go through bucket, pinging nodes, replace one
@@ -53,17 +75,17 @@ impl RoutingTable {
     ///
     /// NOTE: This method is a really stupid, linear time search. I can't find
     /// info on how to use the buckets effectively to solve this.
-    pub fn closest_nodes(&self, item: Key, count: usize) -> Vec<(NodeInfo,Distance)> {
+    pub fn closest_nodes(&self, item: Key, count: usize) -> Vec<NodeAndDistance> {
         if count == 0 {
             return Vec::new();
         }
         let mut ret = Vec::with_capacity(count);
         for bucket in &self.buckets {
             for node_info in bucket {
-                ret.push( (node_info.clone(), node_info.id.dist(item)) );
+                ret.push( NodeAndDistance(node_info.clone(), node_info.id.dist(item)) );
             }
         }
-        ret.sort_by(|&(_,a), &(_,b)| a.cmp(&b));
+        ret.sort_by(|a,b| a.1.cmp(&b.1));
         ret.truncate(count);
         ret
     }

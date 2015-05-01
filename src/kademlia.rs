@@ -1,4 +1,4 @@
-use std::collections::{HashMap,HashSet,VecDeque};
+use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::net::UdpSocket;
 use std::sync::{Arc,Mutex};
 use std::sync::mpsc;
@@ -6,10 +6,10 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use rustc_serialize::{Decoder,Encodable,Encoder};
 
-use ::{ALPHA,K};
-use ::key::{Distance,Key};
+use ::{A_PARAM,K_PARAM};
+use ::key::Key;
 use ::rpc::{ReqHandle,Rpc};
-use ::routing::{NodeInfo,RoutingTable};
+use ::routing::{NodeAndDistance,NodeInfo,RoutingTable};
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum Request {
@@ -21,14 +21,14 @@ pub enum Request {
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum FindValueResult {
-    Nodes(Vec<(NodeInfo, Distance)>),
+    Nodes(Vec<NodeAndDistance>),
     Value(String),
 }
 
 #[derive(Clone,Debug,RustcEncodable,RustcDecodable)]
 pub enum Reply {
     Ping,
-    FindNode(Vec<(NodeInfo, Distance)>),
+    FindNode(Vec<NodeAndDistance>),
     FindValue(FindValueResult),
 }
 
@@ -96,8 +96,8 @@ impl Kademlia {
                 Reply::Ping
             }
             Request::FindNode(id) => {
-                let mut routes = self.routes.lock().unwrap();
-                Reply::FindNode(routes.closest_nodes(id, K))
+                let routes = self.routes.lock().unwrap();
+                Reply::FindNode(routes.closest_nodes(id, K_PARAM))
             }
             Request::FindValue(k) => {
                 let hash = Key::hash(k.clone());
@@ -111,37 +111,41 @@ impl Kademlia {
                         Reply::FindValue(FindValueResult::Value(v))
                     }
                     None => {
-                        let mut routes = self.routes.lock().unwrap();
-                        Reply::FindValue(FindValueResult::Nodes(routes.closest_nodes(hash, K)))
+                        let routes = self.routes.lock().unwrap();
+                        Reply::FindValue(FindValueResult::Nodes(routes.closest_nodes(hash, K_PARAM)))
                     }
                 }
             }
         }
     }
 
-    pub fn lookup_nodes(&self, id: Key) -> Vec<(NodeInfo,Distance)> {
+    pub fn lookup_nodes(&self, id: Key) -> Vec<NodeAndDistance> {
         let mut known = HashSet::new();
 
         // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
-        let mut to_query = routes.closest_nodes(id, K).into_iter().collect::<VecDeque<_>>();
+        let mut to_query = BinaryHeap::from_vec(routes.closest_nodes(id, K_PARAM));
         drop(routes);
 
         while !to_query.is_empty() {
             let mut joins = Vec::new();
             let mut queries = Vec::new();
             let mut results = Vec::new();
-            for _ in 0..ALPHA {
-                if let Some(entry) = to_query.pop_front() {
+            for _ in 0..A_PARAM {
+                if let Some(entry) = to_query.pop() {
                     queries.push(entry);
                 } else {
                     break;
                 }
             }
-            for (ni, d) in queries.into_iter() {
+            for NodeAndDistance(ni, d) in queries.into_iter() {
                 let node = self.clone();
                 joins.push(thread::spawn(move || {
-                    node.find_node(ni.clone(), id)
+                    let res = node.find_node(ni.clone(), id);
+                    res.map(|mut nodes| {
+                        nodes.push(NodeAndDistance(ni,d));
+                        nodes
+                    })
                 }));
             }
             for j in joins {
@@ -152,14 +156,14 @@ impl Kademlia {
             for res in results {
                 for entry in res {
                     if known.insert(entry.clone()) {
-                        to_query.push_back(entry);
+                        to_query.push(entry);
                     }
                 }
             }
         }
 
         let mut ret = known.into_iter().collect::<Vec<_>>();
-        ret.sort_by(|&(_, a),&(_,b)| a.cmp(&b));
+        ret.sort_by(|a,b| a.1.cmp(&b.1));
         ret
     }
 
@@ -169,25 +173,33 @@ impl Kademlia {
 
         // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
-        let mut to_query = routes.closest_nodes(id, K).into_iter().collect::<VecDeque<_>>();
+        let mut to_query = routes.closest_nodes(id, K_PARAM).into_iter().collect::<BinaryHeap<_>>();
         drop(routes);
 
         while !to_query.is_empty() {
             let mut joins = Vec::new();
             let mut queries = Vec::new();
             let mut results = Vec::new();
-            for _ in 0..ALPHA {
-                if let Some(entry) = to_query.pop_front() {
+            for _ in 0..A_PARAM {
+                if let Some(entry) = to_query.pop() {
                     queries.push(entry);
                 } else {
                     break;
                 }
             }
-            for (ni, d) in queries.into_iter() {
+            for NodeAndDistance(ni, d) in queries.into_iter() {
                 let node = self.clone();
                 let k = k.clone();
                 joins.push(thread::spawn(move || {
-                    node.find_value(ni.clone(), &k)
+                    let fvr_opt = node.find_value(ni.clone(), &k);
+                    fvr_opt.map(|fvr| {
+                        if let FindValueResult::Nodes(mut res) = fvr {
+                            res.push(NodeAndDistance(ni,d));
+                            FindValueResult::Nodes(res)
+                        } else {
+                            fvr
+                        }
+                    })
                 }));
             }
             for j in joins {
@@ -200,7 +212,7 @@ impl Kademlia {
                     FindValueResult::Nodes(entries) => {
                         for entry in entries {
                             if known.insert(entry.clone()) {
-                                to_query.push_back(entry);
+                                to_query.push(entry);
                             }
                         }
                     }
@@ -212,7 +224,7 @@ impl Kademlia {
         }
 
         let mut ret = known.into_iter().collect::<Vec<_>>();
-        ret.sort_by(|&(_, a),&(_,b)| a.cmp(&b));
+        ret.sort_by(|a,b| a.1.cmp(&b.1));
         FindValueResult::Nodes(ret)
     }
 
@@ -254,7 +266,7 @@ impl Kademlia {
         }
     }
 
-    pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<(NodeInfo, Distance)>> {
+    pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<NodeAndDistance>> {
         let rep = self.find_node_raw(&dst.addr, id).recv().unwrap();
         if let Some(Reply::FindNode(entries)) = rep {
             let mut routes = self.routes.lock().unwrap();
