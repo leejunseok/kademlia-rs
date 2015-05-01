@@ -90,6 +90,15 @@ impl RoutingTable {
         ret
     }
 
+    pub fn remove(&mut self, node_info: &NodeInfo) {
+        let bucket_index = self.lookup_bucket_index(node_info.id);
+        if let Some(item_index) = self.buckets[bucket_index].position_elem(node_info) {
+            self.buckets[bucket_index].remove(item_index);
+        } else {
+            warn!("Tried to remove routing entry that doesn't exist.");
+        }
+    }
+
     fn lookup_bucket_index(&self, item: Key) -> usize {
         self.node_info.id.dist(item).zeroes_in_prefix()
     }

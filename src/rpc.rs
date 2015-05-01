@@ -134,7 +134,7 @@ impl Rpc {
     fn send_msg(&self, rmsg: &RpcMessage, addr: &str) {
         let enc_msg = json::encode(rmsg).unwrap();
         self.socket.send_to(&enc_msg.as_bytes(), addr).unwrap();
-        debug!("| OUT | {:?} ==> {:?} ", rmsg.msg, addr);
+        debug!("| OUT | {:?} ==> {:?} ", rmsg.msg, rmsg.dst.id);
     }
 
     /// Sends a request of data from src_info to dst_info, returning a Receiver for the reply
