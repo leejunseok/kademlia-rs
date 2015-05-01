@@ -42,14 +42,17 @@ pub struct Kademlia {
 
 /// A Kademlia node
 impl Kademlia {
-    pub fn start(net_id: String, node_id: Key, node_addr: &str, bootstrap: &str) -> Kademlia {
+    pub fn start(net_id: String, node_id: Key, node_addr: &str, bootstrap: Option<NodeInfo>) -> Kademlia {
         let socket = UdpSocket::bind(node_addr).unwrap();
         let node_info = NodeInfo {
-            id: node_id,
+            id: node_id.clone(),
             addr: socket.local_addr().unwrap().to_string(),
             net_id: net_id,
         };
-        let routes = RoutingTable::new(node_info.clone());
+        let mut routes = RoutingTable::new(node_info.clone());
+        if let Some(bootstrap) = bootstrap {
+            routes.update(bootstrap);
+        }
         println!("New node created at {} with ID {:?}", &node_info.addr, &node_info.id);
 
         let (tx, rx) = mpsc::channel();
@@ -63,6 +66,8 @@ impl Kademlia {
         };
 
         node.clone().start_req_handler(rx);
+
+        node.lookup_nodes(node_id);
 
         node
     }
@@ -230,7 +235,7 @@ impl Kademlia {
         ret
     }
 
-    pub fn lookup_value(&self, k: String) -> FindValueResult {
+    pub fn lookup_value(&self, k: String) -> Option<String> {
         let id = Key::hash(k.clone());
         let mut queried = HashSet::new();
         let mut ret = HashSet::new();
@@ -277,16 +282,29 @@ impl Kademlia {
                             }
                         }
                         FindValueResult::Value(val) => {
-                            return FindValueResult::Value(val);
+                            return Some(val);
                         }
                     }
                 }
             }
         }
 
-        let mut ret = ret.into_iter().collect::<Vec<_>>();
-        ret.sort_by(|a,b| a.1.cmp(&b.1));
-        ret.truncate(K_PARAM);
-        FindValueResult::Nodes(ret)
+        None
+    }
+
+    pub fn put(&self, k: String, v: String) {
+        let candidates = self.lookup_nodes(Key::hash(k.clone()));
+        for NodeAndDistance(node_info, _) in candidates {
+            let node = self.clone();
+            let k = k.clone();
+            let v = v.clone();
+            thread::spawn(move || {
+                node.store(node_info, k, v).unwrap();
+            });
+        }
+    }
+
+    pub fn get(&self, k: String) -> Option<String> {
+        self.lookup_value(k)
     }
 }

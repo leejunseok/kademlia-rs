@@ -5,10 +5,23 @@ use std::io;
 use kademlia::*;
 
 fn main() {
+    let mut input = io::stdin();
+    let mut buffer = String::new();
+    input.read_line(&mut buffer).unwrap();
+    let params = buffer.trim_right().split(' ').collect::<Vec<_>>();
+    let bootstrap = if params.len() < 2 {
+        None
+    } else {
+        Some(NodeInfo {
+            id: Key::from(String::from(params[1])),
+            addr: String::from(params[0]),
+            net_id: String::from("test_net"),
+        })
+    };
     let handle = Kademlia::start(String::from("test_net"),
                                  Key::random(),
                                  "127.0.0.1:0",
-                                 "127.0.0.1:0");
+                                 bootstrap);
 
     let mut dummy_info = NodeInfo {
         net_id: String::from("test_net"),
@@ -16,7 +29,6 @@ fn main() {
         id: Key::random(),
     };
 
-    let mut input = io::stdin();
     loop {
         let mut buffer = String::new();
         if input.read_line(&mut buffer).is_err() {
@@ -49,6 +61,12 @@ fn main() {
             }
             "lv" => {
                 println!("{:?}", handle.lookup_value(String::from(args[1])));
+            }
+            "put" => {
+                println!("{:?}", handle.put(String::from(args[1]), String::from(args[2])));
+            }
+            "get" => {
+                println!("{:?}", handle.get(String::from(args[1])));
             }
             _ => {
                 println!("no match");
