@@ -119,6 +119,66 @@ impl Kademlia {
         }
     }
 
+    pub fn ping_raw(&self, dst: NodeInfo) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Ping, dst)
+    }
+
+    pub fn store_raw(&self, dst: NodeInfo, k: String, v: String) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Store(k, v), dst)
+    }
+
+    pub fn find_node_raw(&self, dst: NodeInfo, id: Key) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindNode(id), dst)
+    }
+
+    pub fn find_value_raw(&self, dst: NodeInfo, k: String) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindValue(k), dst)
+    }
+
+    pub fn ping(&self, dst: NodeInfo) -> Option<()> {
+        let rep = self.ping_raw(dst.clone()).recv().unwrap();
+        if let Some(Reply::Ping) = rep {
+            let mut routes = self.routes.lock().unwrap();
+            routes.update(dst);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn store(&self, dst: NodeInfo, k: String, v: String) -> Option<()> {
+        let rep = self.store_raw(dst.clone(), k, v).recv().unwrap();
+        if let Some(Reply::Ping) = rep {
+            let mut routes = self.routes.lock().unwrap();
+            routes.update(dst);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<NodeAndDistance>> {
+        let rep = self.find_node_raw(dst.clone(), id).recv().unwrap();
+        if let Some(Reply::FindNode(entries)) = rep {
+            let mut routes = self.routes.lock().unwrap();
+            routes.update(dst);
+            Some(entries)
+        } else {
+            None
+        }
+    }
+
+    pub fn find_value(&self, dst: NodeInfo, k: String) -> Option<FindValueResult> {
+        let rep = self.find_value_raw(dst.clone(), k).recv().unwrap();
+        if let Some(Reply::FindValue(res)) = rep {
+            let mut routes = self.routes.lock().unwrap();
+            routes.update(dst);
+            Some(res)
+        } else {
+            None
+        }
+    }
+
     pub fn lookup_nodes(&self, id: Key) -> Vec<NodeAndDistance> {
         let mut queried = HashSet::new();
         let mut ret = HashSet::new();
@@ -228,65 +288,5 @@ impl Kademlia {
         ret.sort_by(|a,b| a.1.cmp(&b.1));
         ret.truncate(K_PARAM);
         FindValueResult::Nodes(ret)
-    }
-
-    pub fn ping_raw(&self, dst: NodeInfo) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::Ping, dst)
-    }
-
-    pub fn store_raw(&self, dst: NodeInfo, k: String, v: String) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::Store(k, v), dst)
-    }
-
-    pub fn find_node_raw(&self, dst: NodeInfo, id: Key) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::FindNode(id), dst)
-    }
-
-    pub fn find_value_raw(&self, dst: NodeInfo, k: String) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::FindValue(k), dst)
-    }
-
-    pub fn ping(&self, dst: NodeInfo) -> Option<()> {
-        let rep = self.ping_raw(dst.clone()).recv().unwrap();
-        if let Some(Reply::Ping) = rep {
-            let mut routes = self.routes.lock().unwrap();
-            routes.update(dst);
-            Some(())
-        } else {
-            None
-        }
-    }
-
-    pub fn store(&self, dst: NodeInfo, k: String, v: String) -> Option<()> {
-        let rep = self.store_raw(dst.clone(), k, v).recv().unwrap();
-        if let Some(Reply::Ping) = rep {
-            let mut routes = self.routes.lock().unwrap();
-            routes.update(dst);
-            Some(())
-        } else {
-            None
-        }
-    }
-
-    pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<NodeAndDistance>> {
-        let rep = self.find_node_raw(dst.clone(), id).recv().unwrap();
-        if let Some(Reply::FindNode(entries)) = rep {
-            let mut routes = self.routes.lock().unwrap();
-            routes.update(dst);
-            Some(entries)
-        } else {
-            None
-        }
-    }
-
-    pub fn find_value(&self, dst: NodeInfo, k: String) -> Option<FindValueResult> {
-        let rep = self.find_value_raw(dst.clone(), k).recv().unwrap();
-        if let Some(Reply::FindValue(res)) = rep {
-            let mut routes = self.routes.lock().unwrap();
-            routes.update(dst);
-            Some(res)
-        } else {
-            None
-        }
     }
 }
