@@ -56,6 +56,7 @@ impl From<String> for Key {
         for (i, byte) in s.from_hex().unwrap().iter().enumerate() {
             ret[i] = *byte;
         }
+        println!("{:?}", Key(ret.clone()));
         Key(ret)
     }
 }

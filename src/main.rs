@@ -26,19 +26,29 @@ fn main() {
         match args[0].as_ref() {
             "p" => {
                 dummy_info.addr = String::from(args[1]);
-                handle.ping(dummy_info.clone());
+                dummy_info.id = Key::from(String::from(args[2]));
+                println!("{:?}", handle.ping(dummy_info.clone()));
             }
             "s" => {
                 dummy_info.addr = String::from(args[1]);
-                handle.store(dummy_info.clone(), String::from(args[2]), String::from(args[3]));
+                dummy_info.id = Key::from(String::from(args[2]));
+                println!("{:?}", handle.store(dummy_info.clone(), String::from(args[3]), String::from(args[4])));
             }
             "fn" => {
                 dummy_info.addr = String::from(args[1]);
-                handle.find_node(dummy_info.clone(), Key::from(String::from(args[2])));
+                dummy_info.id = Key::from(String::from(args[2]));
+                println!("{:?}", handle.find_node(dummy_info.clone(), Key::from(String::from(args[3]))));
             }
             "fv" => {
                 dummy_info.addr = String::from(args[1]);
-                handle.find_value(dummy_info.clone(), String::from(args[2]));
+                dummy_info.id = Key::from(String::from(args[2]));
+                println!("{:?}", handle.find_value(dummy_info.clone(), String::from(args[3])));
+            }
+            "ln" => {
+                println!("{:?}", handle.lookup_nodes(Key::from(String::from(args[1]))));
+            }
+            "lv" => {
+                println!("{:?}", handle.lookup_value(String::from(args[1])));
             }
             _ => {
                 println!("no match");

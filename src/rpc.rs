@@ -16,6 +16,7 @@ use ::routing::NodeInfo;
 pub struct RpcMessage {
     token: Key,
     src: NodeInfo,
+    dst: NodeInfo,
     msg: Message,
 }
 
@@ -44,6 +45,7 @@ impl ReqHandle {
         let rep_rmsg = RpcMessage {
             token: self.token,
             src: self.rpc.node_info.clone(),
+            dst: self.src.clone(),
             msg: Message::Reply(rep),
         };
         self.rpc.send_msg(&rep_rmsg, &self.src.addr);
@@ -68,16 +70,19 @@ impl Rpc {
         thread::spawn(move || {
             let mut buf = [0u8; MESSAGE_LEN];
             loop {
-                // NOTE: We currently just trust the src in the message, and ignore where
-                // it actually came from
-                let (len, _) = rpc.socket.recv_from(&mut buf).unwrap();
+                let (len, src_addr) = rpc.socket.recv_from(&mut buf).unwrap();
                 let buf_str = String::from(str::from_utf8(&buf[..len]).unwrap());
-                let rmsg = json::decode::<RpcMessage>(&buf_str).unwrap();
+                let mut rmsg = json::decode::<RpcMessage>(&buf_str).unwrap();
+                rmsg.src.addr = src_addr.to_string();
 
                 println!("|  IN | {:?} <== {:?} ", rmsg.msg, rmsg.src.id);
 
                 if rmsg.src.net_id != rpc.node_info.net_id {
                     println!("Message from different net_id received, ignoring.");
+                    continue;
+                }
+                if rmsg.dst.id != rpc.node_info.id {
+                    println!("Message received, but dst id does not match this node, ignoring.");
                     continue;
                 }
 
@@ -134,7 +139,7 @@ impl Rpc {
     }
 
     /// Sends a request of data from src_info to dst_info, returning a Receiver for the reply
-    pub fn send_req(&self, req: Request, addr: &str) -> Receiver<Option<Reply>> {
+    pub fn send_req(&self, req: Request, dst: NodeInfo) -> Receiver<Option<Reply>> {
         let (tx, rx) = mpsc::channel();
         let mut pending = self.pending.lock().unwrap();
         let mut token = Key::random();
@@ -145,11 +150,12 @@ impl Rpc {
         drop(pending);
 
         let rmsg = RpcMessage { 
-            src: self.node_info.clone(),
             token: token,
+            src: self.node_info.clone(),
+            dst: dst,
             msg: Message::Request(req),
         };
-        self.send_msg(&rmsg, addr);
+        self.send_msg(&rmsg, &rmsg.dst.addr);
 
         let rpc = self.clone();
         thread::spawn(move || {

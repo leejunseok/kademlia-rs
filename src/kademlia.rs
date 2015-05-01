@@ -120,132 +120,134 @@ impl Kademlia {
     }
 
     pub fn lookup_nodes(&self, id: Key) -> Vec<NodeAndDistance> {
-        let mut known = HashSet::new();
+        let mut queried = HashSet::new();
+        let mut ret = HashSet::new();
 
         // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
         let mut to_query = BinaryHeap::from_vec(routes.closest_nodes(id, K_PARAM));
         drop(routes);
 
+        for entry in &to_query {
+            queried.insert(entry.clone());
+        }
+
         while !to_query.is_empty() {
             let mut joins = Vec::new();
             let mut queries = Vec::new();
             let mut results = Vec::new();
             for _ in 0..A_PARAM {
-                if let Some(entry) = to_query.pop() {
-                    queries.push(entry);
-                } else {
-                    break;
+                match to_query.pop() {
+                    Some(entry) => { queries.push(entry); }
+                    None => { break; }
                 }
             }
-            for NodeAndDistance(ni, d) in queries.into_iter() {
+            for &NodeAndDistance(ref ni, _) in &queries {
+                let ni = ni.clone();
                 let node = self.clone();
                 joins.push(thread::spawn(move || {
-                    let res = node.find_node(ni.clone(), id);
-                    res.map(|mut nodes| {
-                        nodes.push(NodeAndDistance(ni,d));
-                        nodes
-                    })
+                    node.find_node(ni.clone(), id)
                 }));
             }
             for j in joins {
-                if let Some(res) = j.join().unwrap() {
-                    results.push(res);
-                }
+                results.push(j.join().unwrap());
             }
-            for res in results {
-                for entry in res {
-                    if known.insert(entry.clone()) {
-                        to_query.push(entry);
+            for (res, query) in results.into_iter().zip(queries) {
+                if let Some(entries) = res {
+                    ret.insert(query);
+                    for entry in entries {
+                        if queried.insert(entry.clone()) {
+                            to_query.push(entry);
+                        }
                     }
                 }
             }
         }
 
-        let mut ret = known.into_iter().collect::<Vec<_>>();
+        let mut ret = ret.into_iter().collect::<Vec<_>>();
         ret.sort_by(|a,b| a.1.cmp(&b.1));
+        ret.truncate(K_PARAM);
         ret
     }
 
     pub fn lookup_value(&self, k: String) -> FindValueResult {
         let id = Key::hash(k.clone());
-        let mut known = HashSet::new();
+        let mut queried = HashSet::new();
+        let mut ret = HashSet::new();
 
         // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
-        let mut to_query = routes.closest_nodes(id, K_PARAM).into_iter().collect::<BinaryHeap<_>>();
+        let mut to_query = BinaryHeap::from_vec(routes.closest_nodes(id, K_PARAM));
         drop(routes);
+
+        for entry in &to_query {
+            queried.insert(entry.clone());
+        }
 
         while !to_query.is_empty() {
             let mut joins = Vec::new();
             let mut queries = Vec::new();
             let mut results = Vec::new();
             for _ in 0..A_PARAM {
-                if let Some(entry) = to_query.pop() {
-                    queries.push(entry);
-                } else {
-                    break;
+                match to_query.pop() {
+                    Some(entry) => { queries.push(entry); }
+                    None => { break; }
                 }
             }
-            for NodeAndDistance(ni, d) in queries.into_iter() {
-                let node = self.clone();
+            for &NodeAndDistance(ref ni, _) in &queries {
                 let k = k.clone();
+                let ni = ni.clone();
+                let node = self.clone();
                 joins.push(thread::spawn(move || {
-                    let fvr_opt = node.find_value(ni.clone(), k);
-                    fvr_opt.map(|fvr| {
-                        if let FindValueResult::Nodes(mut res) = fvr {
-                            res.push(NodeAndDistance(ni,d));
-                            FindValueResult::Nodes(res)
-                        } else {
-                            fvr
-                        }
-                    })
+                    node.find_value(ni.clone(), k)
                 }));
             }
             for j in joins {
-                if let Some(res) = j.join().unwrap() {
-                    results.push(res);
-                }
+                results.push(j.join().unwrap());
             }
-            for res in results {
-                match res {
-                    FindValueResult::Nodes(entries) => {
-                        for entry in entries {
-                            if known.insert(entry.clone()) {
-                                to_query.push(entry);
+            for (res, query) in results.into_iter().zip(queries) {
+                if let Some(fvres) = res {
+                    match fvres {
+                        FindValueResult::Nodes(entries) => {
+                            ret.insert(query);
+                            for entry in entries {
+                                if queried.insert(entry.clone()) {
+                                    to_query.push(entry);
+                                }
                             }
                         }
-                    }
-                    FindValueResult::Value(val) => {
-                        return FindValueResult::Value(val);
+                        FindValueResult::Value(val) => {
+                            return FindValueResult::Value(val);
+                        }
                     }
                 }
             }
         }
 
-        let mut ret = known.into_iter().collect::<Vec<_>>();
+        let mut ret = ret.into_iter().collect::<Vec<_>>();
         ret.sort_by(|a,b| a.1.cmp(&b.1));
+        ret.truncate(K_PARAM);
         FindValueResult::Nodes(ret)
     }
 
-    pub fn ping_raw(&self, addr: &str) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::Ping, addr)
+    pub fn ping_raw(&self, dst: NodeInfo) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Ping, dst)
     }
 
-    pub fn store_raw(&self, addr: &str, k: String, v: String) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::Store(k, v), addr)
+    pub fn store_raw(&self, dst: NodeInfo, k: String, v: String) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::Store(k, v), dst)
     }
 
-    pub fn find_node_raw(&self, addr: &str, id: Key) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::FindNode(id), addr)
+    pub fn find_node_raw(&self, dst: NodeInfo, id: Key) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindNode(id), dst)
     }
 
-    pub fn find_value_raw(&self, addr: &str, k: String) -> Receiver<Option<Reply>> {
-        self.rpc.send_req(Request::FindValue(k), addr)
+    pub fn find_value_raw(&self, dst: NodeInfo, k: String) -> Receiver<Option<Reply>> {
+        self.rpc.send_req(Request::FindValue(k), dst)
     }
 
     pub fn ping(&self, dst: NodeInfo) -> Option<()> {
-        let rep = self.ping_raw(&dst.addr).recv().unwrap();
+        let rep = self.ping_raw(dst.clone()).recv().unwrap();
         if let Some(Reply::Ping) = rep {
             let mut routes = self.routes.lock().unwrap();
             routes.update(dst);
@@ -256,7 +258,7 @@ impl Kademlia {
     }
 
     pub fn store(&self, dst: NodeInfo, k: String, v: String) -> Option<()> {
-        let rep = self.store_raw(&dst.addr, k, v).recv().unwrap();
+        let rep = self.store_raw(dst.clone(), k, v).recv().unwrap();
         if let Some(Reply::Ping) = rep {
             let mut routes = self.routes.lock().unwrap();
             routes.update(dst);
@@ -267,7 +269,7 @@ impl Kademlia {
     }
 
     pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<NodeAndDistance>> {
-        let rep = self.find_node_raw(&dst.addr, id).recv().unwrap();
+        let rep = self.find_node_raw(dst.clone(), id).recv().unwrap();
         if let Some(Reply::FindNode(entries)) = rep {
             let mut routes = self.routes.lock().unwrap();
             routes.update(dst);
@@ -278,7 +280,7 @@ impl Kademlia {
     }
 
     pub fn find_value(&self, dst: NodeInfo, k: String) -> Option<FindValueResult> {
-        let rep = self.find_value_raw(&dst.addr, k).recv().unwrap();
+        let rep = self.find_value_raw(dst.clone(), k).recv().unwrap();
         if let Some(Reply::FindValue(res)) = rep {
             let mut routes = self.routes.lock().unwrap();
             routes.update(dst);
