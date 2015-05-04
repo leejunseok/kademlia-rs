@@ -7,9 +7,9 @@ This is a basic (currently WIP) implementation in Rust of the Kademlia distribut
 peer-to-peer information system. It stores both keys and values as character strings, and does not
 rely on master-slave relations; all nodes in the system are peers.
 
-This is a personal project which I started primarily to learn Rust, but also to prove to dem h8ers
-that I can finish a side project. Along the way I got to use some ideas from my systems programming
-regarding sharing mutable state and programming multi-threaded applications.
+This is a personal project which I started primarily to learn Rust. Along the way I got to use some
+deas from my systems programming regarding shared mutable state and programming multi-threaded
+applications.
 
 Running
 =======
@@ -55,3 +55,9 @@ the incoming messages.
 Of course, the end user doesn't see all this; they just have to call `Kademlia::start()` with the
 appropriate arguments, and they will get back a handle to the node, and this will all happen in the
 background.
+
+Feedback
+========
+
+I'm certain there are countless mistakes in this project, and I would love to hear how I could improve
+them (especially with regards to error handling).
