@@ -160,7 +160,6 @@ impl Rpc {
         thread::spawn(move || {
             thread::sleep_ms(TIMEOUT);
             if let Ok(_) = tx.send(None) {
-                debug!("timeout :(");
                 let mut pending = rpc.pending.lock().unwrap();
                 pending.remove(&token);
             }

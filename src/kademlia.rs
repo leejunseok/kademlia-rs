@@ -43,10 +43,10 @@ pub struct Kademlia {
 /// A Kademlia node
 impl Kademlia {
     pub fn start(net_id: String, node_id: Key, node_addr: &str, bootstrap: Option<NodeInfo>) -> Kademlia {
-        let socket = UdpSocket::bind(node_addr).unwrap();
+        let socket = UdpSocket::bind(node_addr).unwrap(); // err: failed to bind to socket
         let node_info = NodeInfo {
             id: node_id.clone(),
-            addr: socket.local_addr().unwrap().to_string(),
+            addr: socket.local_addr().unwrap().to_string(), // err: failed to retrieve local addr
             net_id: net_id,
         };
         let mut routes = RoutingTable::new(node_info.clone());
@@ -142,7 +142,7 @@ impl Kademlia {
     }
 
     pub fn ping(&self, dst: NodeInfo) -> Option<()> {
-        let rep = self.ping_raw(dst.clone()).recv().unwrap();
+        let rep = self.ping_raw(dst.clone()).recv().unwrap(); // err: pending reply channel closed
         let mut routes = self.routes.lock().unwrap();
         if let Some(Reply::Ping) = rep {
             routes.update(dst);
@@ -154,7 +154,7 @@ impl Kademlia {
     }
 
     pub fn store(&self, dst: NodeInfo, k: String, v: String) -> Option<()> {
-        let rep = self.store_raw(dst.clone(), k, v).recv().unwrap();
+        let rep = self.store_raw(dst.clone(), k, v).recv().unwrap(); // err: pending reply channel closed
         let mut routes = self.routes.lock().unwrap();
         if let Some(Reply::Ping) = rep {
             routes.update(dst);
@@ -166,7 +166,7 @@ impl Kademlia {
     }
 
     pub fn find_node(&self, dst: NodeInfo, id: Key) -> Option<Vec<NodeAndDistance>> {
-        let rep = self.find_node_raw(dst.clone(), id).recv().unwrap();
+        let rep = self.find_node_raw(dst.clone(), id).recv().unwrap(); // err: pending reply channel closed
         let mut routes = self.routes.lock().unwrap();
         if let Some(Reply::FindNode(entries)) = rep {
             routes.update(dst);
@@ -178,7 +178,7 @@ impl Kademlia {
     }
 
     pub fn find_value(&self, dst: NodeInfo, k: String) -> Option<FindValueResult> {
-        let rep = self.find_value_raw(dst.clone(), k).recv().unwrap();
+        let rep = self.find_value_raw(dst.clone(), k).recv().unwrap(); // err: pending reply channel closed
         let mut routes = self.routes.lock().unwrap();
         if let Some(Reply::FindValue(res)) = rep {
             routes.update(dst);
