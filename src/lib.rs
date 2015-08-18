@@ -1,4 +1,4 @@
-#![feature(collections,slice_position_elem)]
+#![feature(collections)]
 
 #[macro_use]
 extern crate log;

@@ -8,7 +8,7 @@ use kademlia::*;
 fn main() {
     env_logger::init().unwrap();
 
-    let mut input = io::stdin();
+    let input = io::stdin();
     let mut buffer = String::new();
     input.read_line(&mut buffer).unwrap();
     let params = buffer.trim_right().split(' ').collect::<Vec<_>>();
