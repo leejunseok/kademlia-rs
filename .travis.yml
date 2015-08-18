@@ -1,7 +1,3 @@
 language: rust
 rust:
-  - stable
   - nightly
-matrix:
-  allow_failure:
-    - rust: stable
