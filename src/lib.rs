@@ -1,4 +1,4 @@
-#![feature(collections)]
+#![feature(binary_heap_extras)]
 
 #[macro_use]
 extern crate log;
