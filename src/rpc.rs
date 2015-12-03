@@ -5,6 +5,7 @@ use std::sync::{Arc,Mutex};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
+use std::time::Duration;
 use rustc_serialize::json;
 
 use ::{MESSAGE_LEN,TIMEOUT};
@@ -158,7 +159,7 @@ impl Rpc {
 
         let rpc = self.clone();
         thread::spawn(move || {
-            thread::sleep_ms(TIMEOUT);
+            thread::sleep(Duration::from_millis(TIMEOUT));
             if let Ok(_) = tx.send(None) {
                 let mut pending = rpc.pending.lock().unwrap();
                 pending.remove(&token);

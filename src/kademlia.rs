@@ -195,7 +195,7 @@ impl Kademlia {
 
         // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
-        let mut to_query = BinaryHeap::from_vec(routes.closest_nodes(id, K_PARAM));
+        let mut to_query = BinaryHeap::from(routes.closest_nodes(id, K_PARAM));
         drop(routes);
 
         for entry in &to_query {
@@ -247,7 +247,7 @@ impl Kademlia {
 
         // Add the closest nodes we know to our queue of nodes to query
         let routes = self.routes.lock().unwrap();
-        let mut to_query = BinaryHeap::from_vec(routes.closest_nodes(id, K_PARAM));
+        let mut to_query = BinaryHeap::from(routes.closest_nodes(id, K_PARAM));
         drop(routes);
 
         for entry in &to_query {

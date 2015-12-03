@@ -1,5 +1,3 @@
-#![feature(binary_heap_extras)]
-
 #[macro_use]
 extern crate log;
 extern crate crypto;
@@ -26,4 +24,4 @@ const A_PARAM: usize = 3;
 /// Max message length
 const MESSAGE_LEN: usize = 8196;
 /// Default timeout
-const TIMEOUT: u32 = 5000;
+const TIMEOUT: u64 = 5000;
