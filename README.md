@@ -16,11 +16,12 @@ Running
 
 `RUST_LOG=info cargo run`
 
-Once started, it will expect one line of input; the info for an existing node, formatted as follows:
+If started without giving any parameters, a new node with random ID listening on a random local port will be created.
 
-    <IP>:<Port> <Key>
+To re-create a given node, you can provide a suitable node ID via the `--id` parameter.
+To select the address and/or port a node should bind to, use the `--bind` parameter.
 
-This is optional, and if you enter a blank line, the node will start up without bootstrapping.
+To connect to another node for bootstrapping off it you must provide both the remote address as well as the remote node's ID via the `--bootstrap-addr` and `--bootstrap-id` parameters respectively.
 
 Once a node starts, it will log its information (IP,Port,Key) to stdout PROVIDED THAT `RUST_LOG` IS SET TO `info` in the environment.
 
@@ -61,3 +62,18 @@ Feedback
 
 I'm certain there are countless mistakes in this project, and I would love to hear how I could improve
 them (especially with regards to error handling).
+
+License
+=======
+
+Licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
+
+Contribution
+============
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

@@ -2,6 +2,7 @@
 name = "kademlia"
 version = "0.0.1"
 authors = ["Junseok Lee <lee.junseok@berkeley.edu>"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 rustc-serialize = "*"
@@ -9,3 +10,4 @@ rand = "*"
 rust-crypto = "*"
 log = "*"
 env_logger = "*"
+structopt = "*" 
