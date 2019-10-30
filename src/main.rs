@@ -11,19 +11,23 @@ use structopt::StructOpt;
 #[derive(StructOpt, Debug)]
 #[structopt(name = "kademlia")]
 struct Opt {
+    /// This node's own ID, in case you want to re-create a node (useful for bootstraps)
     #[structopt(long)]
     id: Option<String>,
     
+    /// Where should this node bind to?
     #[structopt(long, default_value = "127.0.0.1:0")]
     bind: String,
 
+    /// Bootstrap node address
     #[structopt(long)]
     bootstrap_addr: Option<String>,
 
+    /// ID of bootstrap node
     #[structopt(long)]
     bootstrap_id: Option<String>,
 
-
+    /// The name of the network being established
     #[structopt(long, default_value = "test_net")]
     network_id: String,
 }
