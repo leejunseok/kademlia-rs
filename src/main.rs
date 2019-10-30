@@ -6,12 +6,12 @@ use std::io;
 use kademlia::*;
 
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::init();
 
     let input = io::stdin();
     let mut buffer = String::new();
     input.read_line(&mut buffer).unwrap();
-    let params = buffer.trim_right().split(' ').collect::<Vec<_>>();
+    let params = buffer.trim_end().split(' ').collect::<Vec<_>>();
     let bootstrap = if params.len() < 2 {
         None
     } else {
@@ -37,7 +37,7 @@ fn main() {
         if input.read_line(&mut buffer).is_err() {
             break;
         }
-        let args = buffer.trim_right().split(' ').collect::<Vec<_>>();
+        let args = buffer.trim_end().split(' ').collect::<Vec<_>>();
         match args[0].as_ref() {
             "p" => {
                 dummy_info.addr = String::from(args[1]);
