@@ -9,7 +9,7 @@ use structopt::StructOpt;
 
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "basic")]
+#[structopt(name = "kademlia")]
 struct Opt {
     #[structopt(long)]
     id: Option<String>,
