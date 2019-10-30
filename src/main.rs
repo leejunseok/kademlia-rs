@@ -1,33 +1,65 @@
 extern crate rustc_serialize;
 extern crate kademlia;
 extern crate env_logger;
+extern crate structopt;
 
 use std::io;
 use kademlia::*;
+use structopt::StructOpt;
+
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "kademlia")]
+struct Opt {
+    /// This node's own ID, in case you want to re-create a node (useful for bootstraps)
+    #[structopt(long)]
+    id: Option<String>,
+    
+    /// Where should this node bind to?
+    #[structopt(long, default_value = "127.0.0.1:0")]
+    bind: String,
+
+    /// Bootstrap node address
+    #[structopt(long)]
+    bootstrap_addr: Option<String>,
+
+    /// ID of bootstrap node
+    #[structopt(long)]
+    bootstrap_id: Option<String>,
+
+    /// The name of the network being established
+    #[structopt(long, default_value = "test_net")]
+    network_id: String,
+}
+
 
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::init();
+
+    let opt = Opt::from_args();
+    println!("{:#?}", opt);
+
 
     let input = io::stdin();
-    let mut buffer = String::new();
-    input.read_line(&mut buffer).unwrap();
-    let params = buffer.trim_right().split(' ').collect::<Vec<_>>();
-    let bootstrap = if params.len() < 2 {
-        None
-    } else {
+    let bootstrap = if opt.bootstrap_addr.is_some() && opt.bootstrap_id.is_some() {
         Some(NodeInfo {
-            id: Key::from(String::from(params[1])),
-            addr: String::from(params[0]),
-            net_id: String::from("test_net"),
+            id: Key::from(opt.bootstrap_id.unwrap()),
+            addr: opt.bootstrap_addr.unwrap(),
+            net_id: opt.network_id.clone(),
         })
+    } else {
+        None
     };
-    let handle = Kademlia::start(String::from("test_net"),
-                                 Key::random(),
-                                 "127.0.0.1:0",
+    let handle = Kademlia::start(opt.network_id.clone(),
+                                 match opt.id {
+                                    Some(k) => Key::from(k),
+                                    None => Key::random()
+                                 },
+                                 &opt.bind,
                                  bootstrap);
 
     let mut dummy_info = NodeInfo {
-        net_id: String::from("test_net"),
+        net_id: opt.network_id,
         addr: String::from("asdfasdf"),
         id: Key::random(),
     };
@@ -37,7 +69,7 @@ fn main() {
         if input.read_line(&mut buffer).is_err() {
             break;
         }
-        let args = buffer.trim_right().split(' ').collect::<Vec<_>>();
+        let args = buffer.trim_end().split(' ').collect::<Vec<_>>();
         match args[0].as_ref() {
             "p" => {
                 dummy_info.addr = String::from(args[1]);

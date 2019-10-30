@@ -44,7 +44,7 @@ impl Key {
 impl Debug for Key {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         for x in self.0.iter() {
-            try!(write!(f, "{0:02x}", x));
+            write!(f, "{0:02x}", x)?;
         }
         Ok(())
     }
@@ -68,7 +68,7 @@ impl Decodable for Key {
             }
             let mut ret = [0; KEY_LEN];
             for i in 0..KEY_LEN {
-                ret[i] = try!(d.read_seq_elt(i, Decodable::decode));
+                ret[i] = d.read_seq_elt(i, Decodable::decode)?;
             }
             Ok(Key(ret))
         })
@@ -79,7 +79,7 @@ impl Encodable for Key {
     fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
         s.emit_seq(KEY_LEN, |s| {
             for i in 0..KEY_LEN {
-                try!(s.emit_seq_elt(i, |s| self.0[i].encode(s)));
+                s.emit_seq_elt(i, |s| self.0[i].encode(s))?;
             }
             Ok(())
         })
@@ -105,7 +105,7 @@ impl Distance {
 impl Debug for Distance {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         for x in self.0.iter() {
-            try!(write!(f, "{0:02x}", x));
+            write!(f, "{0:02x}", x)?;
         }
         Ok(())
     }
@@ -119,7 +119,7 @@ impl Decodable for Distance {
             }
             let mut ret = [0; KEY_LEN];
             for i in 0..KEY_LEN {
-                ret[i] = try!(d.read_seq_elt(i, Decodable::decode));
+                ret[i] = d.read_seq_elt(i, Decodable::decode)?;
             }
             Ok(Distance(ret))
         })
@@ -130,7 +130,7 @@ impl Encodable for Distance {
     fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
         s.emit_seq(KEY_LEN, |s| {
             for i in 0..KEY_LEN {
-                try!(s.emit_seq_elt(i, |s| self.0[i].encode(s)));
+                s.emit_seq_elt(i, |s| self.0[i].encode(s))?;
             }
             Ok(())
         })
